@@ -14,7 +14,7 @@ Python library for Sunricher DALI Gateway (EDA) integration with Home Assistant.
 ## Installation
 
 ```bash
-pip install pysrdaligateway
+pip install PySrDaliGateway
 ```
 
 ## Device Types Supported
@@ -27,7 +27,3 @@ pip install pysrdaligateway
 
 - Python 3.8+
 - paho-mqtt>=1.6.0
-
-## License
-
-MIT License - see LICENSE file for details.
