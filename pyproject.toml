@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pysrdaligateway"
+version = "0.1.0"
+description = "Python library for Sunricher DALI Gateway (EDA)"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [{name = "Sunricher"}]
+requires-python = ">=3.8"
+dependencies = [
+    "paho-mqtt>=2.0.0",
+    "psutil>=6.0.0",
+    "cryptography>=40.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/sunricher/PySrDaliGateway"

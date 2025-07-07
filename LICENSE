@@ -1,0 +1,84 @@
+Sunricher DALI Center Home Assistant Integration License
+
+Copyright (c) 2025 Sunricher
+
+All rights reserved.
+
+GRANT OF LICENSE
+
+Subject to the terms and conditions of this License, Sunricher hereby grants you 
+a personal, limited, non-exclusive, non-transferable, non-sublicensable, and 
+royalty-free license to reproduce, use, modify, and distribute the Licensed Work 
+only for your use of Home Assistant for non-commercial purposes.
+
+RESTRICTIONS
+
+You may NOT use the Licensed Work for any other purpose, including but not limited to:
+
+1. Use Licensed Work to develop applications (APP), Web services, and other forms 
+   of software beyond Home Assistant integration.
+
+2. Use Licensed Work for any commercial purposes, including but not limited to 
+   selling, licensing, or distributing products or services that incorporate or 
+   are based on the Licensed Work.
+
+3. Reverse engineer, decompile, or disassemble the Licensed Work for purposes 
+   other than Home Assistant integration.
+
+4. Remove, alter, or obscure any proprietary notices, labels, or marks on the 
+   Licensed Work.
+
+5. Use Sunricher's trademarks, trade names, or intellectual property, including 
+   but not limited to "Sunricher", "DALI Center", or any Sunricher product names 
+   for promoting software or hardware that uses the Licensed Work without written 
+   permission from Sunricher.
+
+AUTHORIZED USE CONDITIONS
+
+1. HARDWARE COMPATIBILITY: This software is designed and intended for use with 
+   Sunricher's DALI-certified gateway products. Use with non-Sunricher hardware 
+   may result in unpredictable behavior and is not supported.
+
+2. HOME ASSISTANT ONLY: This license grants rights only for integration with 
+   Home Assistant. Any use with other home automation platforms requires separate 
+   written permission from Sunricher.
+
+3. NON-COMMERCIAL USE: This license is limited to personal, non-commercial use. 
+   Any commercial use, including but not limited to integration into commercial 
+   products or services, requires a separate commercial license from Sunricher.
+
+INTELLECTUAL PROPERTY
+
+All intellectual property rights in and to the Licensed Work, including but not 
+limited to copyrights, patents, trademarks, and trade secrets, are and shall 
+remain the exclusive property of Sunricher. This License does not grant you any 
+rights to Sunricher's intellectual property except as expressly set forth herein.
+
+DISCLAIMER AND LIMITATION OF LIABILITY
+
+THE LICENSED WORK IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS 
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL SUNRICHER BE 
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, 
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE LICENSED WORK 
+OR THE USE OR OTHER DEALINGS IN THE LICENSED WORK.
+
+TERMINATION
+
+This License is effective until terminated. Your rights under this License will 
+terminate automatically without notice from Sunricher if you fail to comply with 
+any term(s) of this License. Upon termination, you shall cease all use of the 
+Licensed Work and destroy all copies, full or partial, of the Licensed Work.
+
+GOVERNING LAW
+
+This License shall be governed by and construed in accordance with the laws of 
+the jurisdiction where Sunricher is incorporated.
+
+CONTACT
+
+For questions about this License or to request permissions beyond the scope of 
+this License, please contact Sunricher at [contact information].
+
+By using this software, you acknowledge that you have read and understood these 
+terms and agree to use the software in accordance with them.
