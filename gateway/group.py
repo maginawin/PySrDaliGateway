@@ -5,7 +5,7 @@ import colorsys
 from typing import Tuple, Any, Optional
 
 from .types import GroupType
-from . import DaliGateway
+from .gateway import DaliGateway
 from .helper import gen_group_unique_id
 
 _LOGGER = logging.getLogger(__name__)

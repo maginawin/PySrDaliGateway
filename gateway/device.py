@@ -4,7 +4,7 @@ import logging
 import colorsys
 from typing import Optional, Tuple, Any
 
-from . import DaliGateway
+from .gateway import DaliGateway
 from .types import DeviceType
 from .const import COLOR_MODE_MAP
 

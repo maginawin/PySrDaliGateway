@@ -1,7 +1,7 @@
 """Dali Gateway Scene"""
 
 from .types import SceneType
-from . import DaliGateway
+from .gateway import DaliGateway
 from .helper import gen_scene_unique_id
 
 

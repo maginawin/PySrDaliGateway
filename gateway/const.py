@@ -1,5 +1,7 @@
 """Constants for the Dali Center."""
 
+DOMAIN = "dali_center"
+
 DEVICE_TYPE_MAP = {
     "0101": "Dimmer",
     "0102": "CCT",
