@@ -1,5 +1,5 @@
 """Test the constants for Dali Center integration."""
-from gateway.const import DOMAIN
+from PySrDaliGateway.const import DOMAIN
 
 
 def test_domain_constant():
