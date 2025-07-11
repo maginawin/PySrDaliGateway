@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "PySrDaliGateway"
-version = "0.1.3"
+version = "0.1.4"
 description = "Python library for Sunricher DALI Gateway (EDA)"
 readme = "README.md"
 license = {file = "LICENSE"}
