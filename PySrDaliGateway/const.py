@@ -27,6 +27,8 @@ COLOR_MODE_MAP = {
 
 BUTTON_EVENTS = {
     1: "single_click",
-    2: "double_click",
-    3: "long_press"
+    2: "long_press",
+    3: "double_click",
+    4: "rotate",
+    5: "long_press_stop",
 }
