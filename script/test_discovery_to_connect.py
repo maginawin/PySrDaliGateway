@@ -60,6 +60,11 @@ async def test_discover_and_connect():
             _LOGGER.info("Step 3: Testing device discovery...")
 
             try:
+                # Test version
+                _LOGGER.info("Testing version...")
+                version = await gateway.get_version()
+                _LOGGER.info("✓ Found version: %s", version)
+
                 devices = await gateway.discover_devices()
                 _LOGGER.info("✓ Found %d device(s)", len(devices))
 

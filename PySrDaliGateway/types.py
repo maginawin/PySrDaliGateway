@@ -47,3 +47,8 @@ class DaliGatewayType(TypedDict):
     passwd: str
     is_tls: bool
     channel_total: list[int]
+
+
+class VersionType(TypedDict):
+    software: str
+    firmware: str

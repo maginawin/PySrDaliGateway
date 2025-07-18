@@ -1,6 +1,6 @@
 """Dali Gateway"""
 
-from .types import SceneType, GroupType, DeviceType, DaliGatewayType
+from .types import SceneType, GroupType, DeviceType, DaliGatewayType, VersionType
 from .helper import (
     gen_device_unique_id,
     gen_group_unique_id,
@@ -63,10 +63,12 @@ class DaliGateway:
         self._scenes_received = asyncio.Event()
         self._groups_received = asyncio.Event()
         self._devices_received = asyncio.Event()
+        self._version_received = asyncio.Event()
 
         self._scenes_result: list[SceneType] = []
         self._groups_result: list[GroupType] = []
         self._devices_result: list[DeviceType] = []
+        self._version_result: VersionType = {}
 
         # Callbacks
         self._on_online_status: Optional[Callable[[str, bool], None]] = None
@@ -180,6 +182,7 @@ class DaliGateway:
                 "searchDevRes": self._process_search_device_response,
                 "getSceneRes": self._process_get_scene_response,
                 "getGroupRes": self._process_get_group_response,
+                "getVersionRes": self._process_get_version_response,
             }
 
             handler = command_handlers.get(cmd)
@@ -274,6 +277,13 @@ class DaliGateway:
                     _LOGGER.error(
                         "Error converting energy value: %s", str(e)
                     )
+
+    def _process_get_version_response(self, payload_json: dict) -> None:
+        self._version_result = VersionType(
+            software=payload_json.get("data", {}).get("swVersion", ""),
+            firmware=payload_json.get("data", {}).get("fwVersion", "")
+        )
+        self._version_received.set()
 
     def _process_search_device_response(self, payload_json: dict) -> None:
         for raw_device_data in payload_json["data"]:
@@ -437,6 +447,28 @@ class DaliGateway:
             _LOGGER.error("Error during disconnect: %s", exc)
             return False
 
+    async def get_version(self) -> VersionType:
+        self._version_received = asyncio.Event()
+        payload = {
+            "cmd": "getVersion",
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn
+        }
+
+        _LOGGER.debug("Sending get version command: %s", payload)
+        self._mqtt_client.publish(self._pub_topic, json.dumps(payload))
+
+        try:
+            await asyncio.wait_for(self._version_received.wait(), timeout=30.0)
+        except asyncio.TimeoutError:
+            _LOGGER.warning("Timeout waiting for version")
+
+        _LOGGER.info(
+            "Version search completed, found %d version",
+            len(self._version_result)
+        )
+        return self._version_result
+
     async def discover_devices(self) -> list[DeviceType]:
         self._devices_received = asyncio.Event()
         search_payload = {
@@ -455,8 +487,8 @@ class DaliGateway:
             _LOGGER.warning("Timeout waiting for devices list")
 
         _LOGGER.info(
-            "Device search completed, found %d devices", len(
-                self._devices_result)
+            "Device search completed, found %d devices",
+            len(self._devices_result)
         )
         return self._devices_result
 
