@@ -1,4 +1,5 @@
 """Dali Gateway"""
+# pylint: disable=invalid-name
 
 from .__version__ import __version__
 from .gateway import DaliGateway

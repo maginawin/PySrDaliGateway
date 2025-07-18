@@ -147,6 +147,10 @@ class DaliGatewayDiscovery:
         finally:
             if listen_sock:
                 try:
+                    # Leave multicast groups before closing
+                    self._cleanup_multicast_groups(
+                        listen_sock, valid_interfaces
+                    )
                     listen_sock.close()
                 except Exception as e:  # pylint: disable=broad-exception-caught
                     _LOGGER.warning(
@@ -224,10 +228,62 @@ class DaliGatewayDiscovery:
         try:
             mreq = socket.inet_aton(self.MULTICAST_ADDR) + \
                 socket.inet_aton(interface["address"])
+
+            # Try to leave the group first (in case it's already joined)
+            try:
+                sock.setsockopt(
+                    socket.IPPROTO_IP,
+                    socket.IP_DROP_MEMBERSHIP, mreq
+                )
+            except socket.error:
+                # It's okay if we can't leave (probably wasn't joined)
+                pass
+
+            # Now join the multicast group
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+            _LOGGER.debug(
+                "Successfully joined multicast on interface %s",
+                interface["name"]
+            )
         except socket.error as e:
-            _LOGGER.warning(
-                "Failed to join multicast on interface %s: %s",
+            # Only log as debug for "Address already in use" errors
+            if e.errno == 48:  # EADDRINUSE
+                _LOGGER.debug(
+                    "Multicast already in use on interface %s, continuing",
+                    interface["name"]
+                )
+            else:
+                _LOGGER.warning(
+                    "Failed to join multicast on interface %s: %s",
+                    interface["name"], e
+                )
+
+    def _cleanup_multicast_groups(
+        self, sock: socket.socket, interfaces: list[dict]
+    ) -> None:
+        """Clean up multicast group memberships before closing socket."""
+        for interface in interfaces:
+            if interface["address"] != "0.0.0.0":
+                self._leave_multicast_group(sock, interface)
+        # Leave default interface
+        self._leave_multicast_group(sock, self._create_default_interface())
+
+    def _leave_multicast_group(
+        self, sock: socket.socket, interface: dict
+    ) -> None:
+        """Leave a multicast group."""
+        try:
+            mreq = socket.inet_aton(self.MULTICAST_ADDR) + \
+                socket.inet_aton(interface["address"])
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_DROP_MEMBERSHIP, mreq)
+            _LOGGER.debug(
+                "Successfully left multicast on interface %s",
+                interface["name"]
+            )
+        except socket.error as e:
+            # It's okay if we can't leave (probably wasn't joined)
+            _LOGGER.debug(
+                "Could not leave multicast on interface %s: %s",
                 interface["name"], e
             )
 
@@ -422,6 +478,7 @@ class DaliGatewayDiscovery:
         self, raw_data: Any
     ) -> DaliGatewayType | None:
         try:
+            _LOGGER.debug("Processing discovery gateway data: %s", raw_data)
             encrypted_user = raw_data.get("username", "")
             encrypted_pass = raw_data.get("passwd", "")
 
@@ -447,6 +504,7 @@ class DaliGatewayDiscovery:
                 gw_sn=raw_data.get("gwSn"),
                 gw_ip=raw_data.get("gwIp"),
                 port=raw_data.get("port"),
+                is_tls=raw_data.get("isMqttTls"),
                 name=gateway_name,
                 username=decrypted_user,
                 passwd=decrypted_pass,
