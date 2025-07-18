@@ -1,19 +1,23 @@
 """Dali Gateway"""
 
-import time
-import asyncio
-import logging
-from typing import Any, Optional, Callable
-import json
-import paho.mqtt.client as paho_mqtt
-
+from .types import SceneType, GroupType, DeviceType, DaliGatewayType
 from .helper import (
     gen_device_unique_id,
     gen_group_unique_id,
     gen_scene_unique_id,
     gen_device_name
 )
-from .types import SceneType, GroupType, DeviceType, DaliGatewayType
+import paho.mqtt.client as paho_mqtt
+import ssl
+import json
+from typing import Any, Optional, Callable
+import asyncio
+import time
+import logging
+from .const import CA_CERT_PATH
+
+logging.basicConfig(level=logging.DEBUG)
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +35,7 @@ class DaliGateway:
         self._username = gateway["username"]
         self._passwd = gateway["passwd"]
         self._channel_total = gateway["channel_total"]
+        self._is_tls = gateway.get("is_tls", False)
 
         # MQTT topics
         self._sub_topic = f"/{self._gw_sn}/client/reciver/"
@@ -38,8 +43,12 @@ class DaliGateway:
 
         # MQTT client
         self._mqtt_client = paho_mqtt.Client(
-            client_id=f"ha_dali_center_{self._gw_sn}"
+            paho_mqtt.CallbackAPIVersion.VERSION2,
+            client_id=f"ha_dali_center_{self._gw_sn}",
+            protocol=paho_mqtt.MQTTv311
         )
+
+        self._mqtt_client.enable_logger()
 
         # Connection result
         self._connect_result: Optional[int] = None
@@ -67,6 +76,7 @@ class DaliGateway:
     def to_dict(self) -> DaliGatewayType:
         """Convert DaliGateway to dictionary"""
         return {
+            "is_tls": self._is_tls,
             "gw_sn": self._gw_sn,
             "gw_ip": self._gw_ip,
             "port": self._port,
@@ -116,7 +126,7 @@ class DaliGateway:
 
     def _on_connect(
         self, client: paho_mqtt.Client,
-        userdata: Any, flags: Any, rc: int
+        userdata: Any, flags: Any, rc: int, properties: Any = None
     ) -> None:
         # pylint: disable=unused-argument
         self._connect_result = rc
@@ -134,11 +144,12 @@ class DaliGateway:
 
     def _on_disconnect(
         self, client: paho_mqtt.Client,
-        userdata: Any, rc: int
+        userdata: Any, disconnect_flags: Any,
+        reason_code: Any, properties: Any = None
     ) -> None:
         # pylint: disable=unused-argument
-        if rc != 0:
-            _LOGGER.warning("Unexpected MQTT disconnection: %s", rc)
+        if reason_code != 0:
+            _LOGGER.warning("Unexpected MQTT disconnection: %s", reason_code)
 
     def _on_message(
         self, client: paho_mqtt.Client,
@@ -352,6 +363,26 @@ class DaliGateway:
 
         self._groups_received.set()
 
+    async def _setup_ssl(self) -> None:
+        """Configure SSL/TLS for MQTT connection"""
+        try:
+            # Run SSL operations in executor to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self._setup_ssl_sync)
+        except Exception as e:
+            _LOGGER.error("Failed to configure SSL/TLS: %s", str(e))
+            raise
+
+    def _setup_ssl_sync(self) -> None:
+        """Synchronous SSL setup - runs in executor"""
+        context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        context.load_verify_locations(str(CA_CERT_PATH))
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_REQUIRED
+        self._mqtt_client.tls_set_context(context)
+        _LOGGER.debug(
+            "SSL/TLS configured with CA certificate: %s", CA_CERT_PATH
+        )
 
     def get_credentials(self) -> tuple[str, str]:
         return self._username, self._passwd
@@ -362,6 +393,10 @@ class DaliGateway:
         self._mqtt_client.username_pw_set(
             self._username, self._passwd
         )
+
+        # Setup SSL if needed
+        if self._is_tls:
+            await self._setup_ssl()
 
         try:
             self._mqtt_client.connect(

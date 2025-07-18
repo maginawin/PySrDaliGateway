@@ -1,5 +1,7 @@
 """Constants for the Dali Center."""
 
+from importlib import resources
+
 DOMAIN = "dali_center"
 
 DEVICE_TYPE_MAP = {
@@ -32,3 +34,5 @@ BUTTON_EVENTS = {
     4: "rotate",
     5: "long_press_stop",
 }
+
+CA_CERT_PATH = resources.files("PySrDaliGateway") / "certs" / "ca.crt"

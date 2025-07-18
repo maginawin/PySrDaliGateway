@@ -45,4 +45,5 @@ class DaliGatewayType(TypedDict):
     name: str
     username: str
     passwd: str
+    is_tls: bool
     channel_total: list[int]
