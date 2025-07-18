@@ -68,12 +68,13 @@ class DaliGateway:
         self._scenes_result: list[SceneType] = []
         self._groups_result: list[GroupType] = []
         self._devices_result: list[DeviceType] = []
-        self._version_result: VersionType = {}
+        self._version_result: Optional[VersionType] = None
 
         # Callbacks
         self._on_online_status: Optional[Callable[[str, bool], None]] = None
         self._on_device_status: Optional[Callable[[str, list], None]] = None
         self._on_energy_report: Optional[Callable[[str, float], None]] = None
+        self._on_sensor_on_off: Optional[Callable[[str, bool], None]] = None
 
     def to_dict(self) -> DaliGatewayType:
         """Convert DaliGateway to dictionary"""
@@ -125,6 +126,14 @@ class DaliGateway:
     @on_energy_report.setter
     def on_energy_report(self, callback: Callable[[str, float], None]) -> None:
         self._on_energy_report = callback
+
+    @property
+    def on_sensor_on_off(self) -> Optional[Callable[[str, bool], None]]:
+        return self._on_sensor_on_off
+
+    @on_sensor_on_off.setter
+    def on_sensor_on_off(self, callback: Callable[[str, bool], None]) -> None:
+        self._on_sensor_on_off = callback
 
     def _on_connect(
         self, client: paho_mqtt.Client,
@@ -183,6 +192,8 @@ class DaliGateway:
                 "getSceneRes": self._process_get_scene_response,
                 "getGroupRes": self._process_get_group_response,
                 "getVersionRes": self._process_get_version_response,
+                "setSensorOnOffRes": self._process_set_sensor_on_off_response,
+                "getSensorOnOffRes": self._process_get_sensor_on_off_response,
             }
 
             handler = command_handlers.get(cmd)
@@ -373,6 +384,25 @@ class DaliGateway:
 
         self._groups_received.set()
 
+    def _process_set_sensor_on_off_response(self, payload: dict) -> None:
+        _LOGGER.debug(
+            "Received setSensorOnOffRes response, payload: %s",
+            payload
+        )
+
+    def _process_get_sensor_on_off_response(self, payload: dict) -> None:
+        dev_id = gen_device_unique_id(
+            payload.get("devType", ""),
+            payload.get("channel", 0),
+            payload.get("address", 0),
+            self._gw_sn
+        )
+
+        value = payload.get("value", False)
+
+        if self._on_sensor_on_off:
+            self._on_sensor_on_off(dev_id, value)
+
     async def _setup_ssl(self) -> None:
         """Configure SSL/TLS for MQTT connection"""
         try:
@@ -447,7 +477,7 @@ class DaliGateway:
             _LOGGER.error("Error during disconnect: %s", exc)
             return False
 
-    async def get_version(self) -> VersionType:
+    async def get_version(self) -> Optional[VersionType]:
         self._version_received = asyncio.Event()
         payload = {
             "cmd": "getVersion",
@@ -464,8 +494,8 @@ class DaliGateway:
             _LOGGER.warning("Timeout waiting for version")
 
         _LOGGER.info(
-            "Version search completed, found %d version",
-            len(self._version_result)
+            "Version search completed, found version: %s",
+            self._version_result
         )
         return self._version_result
 
@@ -595,6 +625,37 @@ class DaliGateway:
             "gwSn": self._gw_sn,
             "channel": channel,
             "sceneId": scene_id
+        }
+        command_json = json.dumps(command)
+        self._mqtt_client.publish(self._pub_topic, command_json)
+
+    def command_set_sensor_on_off(
+        self, dev_type: str, channel: int,
+        address: int, value: bool
+    ) -> None:
+        command = {
+            "cmd": "setSensorOnOff",
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+            "devType": dev_type,
+            "channel": channel,
+            "address": address,
+            "value": value
+        }
+        command_json = json.dumps(command)
+        self._mqtt_client.publish(self._pub_topic, command_json)
+
+    def command_get_sensor_on_off(
+        self, dev_type: str, channel: int,
+        address: int
+    ) -> None:
+        command = {
+            "cmd": "getSensorOnOff",
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+            "devType": dev_type,
+            "channel": channel,
+            "address": address
         }
         command_json = json.dumps(command)
         self._mqtt_client.publish(self._pub_topic, command_json)

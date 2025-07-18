@@ -161,3 +161,26 @@ class Device:
             "Pressed button %d on panel %s with event type %d",
             button_id, self.dev_id, event_type
         )
+
+    def set_sensor_enabled(self, enabled: bool) -> None:
+        self._gateway.command_set_sensor_on_off(
+            self._dev_type,
+            self._channel,
+            self._address,
+            enabled
+        )
+        _LOGGER.debug(
+            "Set sensor %s enabled state to %s",
+            self.dev_id, enabled
+        )
+
+    def get_sensor_enabled(self) -> None:
+        self._gateway.command_get_sensor_on_off(
+            self._dev_type,
+            self._channel,
+            self._address
+        )
+        _LOGGER.debug(
+            "Requesting sensor %s enabled state",
+            self.dev_id
+        )
