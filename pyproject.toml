@@ -30,6 +30,9 @@ Homepage = "https://github.com/sunricher/PySrDaliGateway"
 [tool.setuptools.packages.find]
 include = ["PySrDaliGateway*"]
 
+[tool.setuptools.package-data]
+PySrDaliGateway = ["certs/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
