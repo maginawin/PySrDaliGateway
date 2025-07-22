@@ -302,10 +302,10 @@ class DaliGatewayDiscovery:
         self, sock: socket.socket, interfaces: list[dict], message: bytes
     ) -> list[DaliGatewayType]:
         _LOGGER.debug(
-            "Starting discovery with periodic sending (every 2s, max 600s)")
+            "Starting discovery with periodic sending (every 2s, max 180s)")
 
         start_time = asyncio.get_event_loop().time()
-        timeout = 600.0  # 10 minutes
+        timeout = 180.0  # 3 minutes
         send_interval = 2.0  # 2 seconds
 
         # Event to signal when first gateway is found
