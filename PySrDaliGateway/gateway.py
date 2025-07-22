@@ -160,7 +160,12 @@ class DaliGateway:
     ) -> None:
         # pylint: disable=unused-argument
         if reason_code != 0:
-            _LOGGER.warning("Unexpected MQTT disconnection: %s", reason_code)
+            _LOGGER.warning(
+                "Unexpected MQTT disconnection from gateway %s (%s:%s) - "
+                "Reason code: %s, Client ID: %s",
+                self._gw_sn, self._gw_ip, self._port, 
+                reason_code, client._client_id
+            )
 
     def _on_message(
         self, client: paho_mqtt.Client,
