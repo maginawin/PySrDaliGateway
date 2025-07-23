@@ -15,8 +15,8 @@ import asyncio
 import time
 import logging
 from .const import CA_CERT_PATH
-
-logging.basicConfig(level=logging.DEBUG)
+from .exceptions import DaliConnectionError, AuthenticationError, DaliTimeoutError
+from .error_codes import ErrorCodes
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -100,6 +100,10 @@ class DaliGateway:
         return self._gw_sn
 
     @property
+    def is_tls(self) -> bool:
+        return self._is_tls
+
+    @property
     def name(self) -> str:
         return self._name
 
@@ -145,13 +149,19 @@ class DaliGateway:
 
         if rc == 0:
             _LOGGER.debug(
-                "Connected to MQTT broker successfully %s:%s",
-                self._gw_ip, self._port
+                "Gateway %s: MQTT connection established to %s:%s",
+                self._gw_sn, self._gw_ip, self._port
             )
             self._mqtt_client.subscribe(self._sub_topic)
-            _LOGGER.debug("Subscribed to topic: %s", self._sub_topic)
+            _LOGGER.debug(
+                "Gateway %s: Subscribed to MQTT topic %s",
+                self._gw_sn, self._sub_topic
+            )
         else:
-            _LOGGER.error("Failed to connect to MQTT broker: %s", rc)
+            _LOGGER.error(
+                "Gateway %s: MQTT connection failed with code %s",
+                self._gw_sn, rc
+            )
 
     def _on_disconnect(
         self, client: paho_mqtt.Client,
@@ -161,10 +171,15 @@ class DaliGateway:
         # pylint: disable=unused-argument
         if reason_code != 0:
             _LOGGER.warning(
-                "Unexpected MQTT disconnection from gateway %s (%s:%s) - "
-                "Reason code: %s, Client ID: %s",
-                self._gw_sn, self._gw_ip, self._port, 
-                reason_code, client._client_id
+                "Gateway %s: Unexpected MQTT disconnection (%s:%s) - "
+                "Reason code: %s",
+                self._gw_sn, self._gw_ip, self._port,
+                reason_code
+            )
+        else:
+            _LOGGER.debug(
+                "Gateway %s: MQTT disconnection completed",
+                self._gw_sn
             )
 
     def _on_message(
@@ -175,14 +190,16 @@ class DaliGateway:
         try:
             payload_json = json.loads(msg.payload.decode())
             _LOGGER.debug(
-                "Received MQTT message on topic %s: %s",
-                msg.topic, payload_json
+                "Gateway %s: Received MQTT message on topic %s: %s",
+                self._gw_sn, msg.topic, payload_json
             )
 
             cmd = payload_json.get("cmd")
             if not cmd:
-                _LOGGER.debug(
-                    "Received MQTT message without cmd: %s", msg.payload)
+                _LOGGER.warning(
+                    "Gateway %s: Received MQTT message without cmd field",
+                    self._gw_sn
+                )
                 return
 
             command_handlers = {
@@ -206,19 +223,28 @@ class DaliGateway:
                 handler(payload_json)
             else:
                 _LOGGER.debug(
-                    "Unhandled MQTT command %s, payload: %s",
-                    cmd, payload_json
+                    "Gateway %s: Unhandled MQTT command '%s', payload: %s",
+                    self._gw_sn, cmd, payload_json
                 )
 
         except json.JSONDecodeError:
-            _LOGGER.error("Failed to decode MQTT message payload")
+            _LOGGER.error(
+                "Gateway %s: Failed to decode MQTT message payload: %s",
+                self._gw_sn, msg.payload
+            )
         except Exception as e:  # pylint: disable=broad-exception-caught
-            _LOGGER.error("Error processing MQTT message: %s", str(e))
+            _LOGGER.error(
+                "Gateway %s: Error processing MQTT message: %s",
+                self._gw_sn, str(e)
+            )
 
     def _process_online_status(self, payload: dict) -> None:
         data_list = payload.get("data")
         if not data_list:
-            _LOGGER.warning("Received onlineStatus with no data: %s", payload)
+            _LOGGER.warning(
+                "Gateway %s: Received onlineStatus with no data: %s",
+                self._gw_sn, payload
+            )
             return
 
         for data in data_list:
@@ -237,7 +263,10 @@ class DaliGateway:
     def _process_device_status(self, payload: dict) -> None:
         data = payload.get("data")
         if not data:
-            _LOGGER.warning("Received devStatus with no data: %s", payload)
+            _LOGGER.warning(
+                "Gateway %s: Received devStatus with no data: %s",
+                self._gw_sn, payload
+            )
             return
 
         dev_id = gen_device_unique_id(
@@ -260,14 +289,18 @@ class DaliGateway:
         ack = payload.get("ack", False)
 
         _LOGGER.debug(
-            "Received write device response, msgId: %s, ack: %s, payload: %s",
-            msg_id, ack, payload
+            "Gateway %s: Received write device response, "
+            "msgId: %s, ack: %s, payload: %s",
+            self._gw_sn, msg_id, ack, payload
         )
 
     def _process_energy_report(self, payload: dict) -> None:
         data = payload.get("data")
         if not data:
-            _LOGGER.warning("Received reportEnergy with no data: %s", payload)
+            _LOGGER.warning(
+                "Gateway %s: Received reportEnergy with no data: %s",
+                self._gw_sn, payload
+            )
             return
 
         dev_id = gen_device_unique_id(
@@ -391,8 +424,8 @@ class DaliGateway:
 
     def _process_set_sensor_on_off_response(self, payload: dict) -> None:
         _LOGGER.debug(
-            "Received setSensorOnOffRes response, payload: %s",
-            payload
+            "Gateway %s: Received setSensorOnOffRes response, payload: %s",
+            self._gw_sn, payload
         )
 
     def _process_get_sensor_on_off_response(self, payload: dict) -> None:
@@ -409,17 +442,17 @@ class DaliGateway:
             self._on_sensor_on_off(dev_id, value)
 
     async def _setup_ssl(self) -> None:
-        """Configure SSL/TLS for MQTT connection"""
         try:
-            # Run SSL operations in executor to avoid blocking the event loop
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, self._setup_ssl_sync)
         except Exception as e:
             _LOGGER.error("Failed to configure SSL/TLS: %s", str(e))
-            raise
+            raise DaliConnectionError(
+                f"SSL/TLS configuration failed: {e}",
+                self._gw_sn, ErrorCodes.SSL_CONFIG_ERROR
+            ) from e
 
     def _setup_ssl_sync(self) -> None:
-        """Synchronous SSL setup - runs in executor"""
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
         context.load_verify_locations(str(CA_CERT_PATH))
         context.check_hostname = False
@@ -432,14 +465,13 @@ class DaliGateway:
     def get_credentials(self) -> tuple[str, str]:
         return self._username, self._passwd
 
-    async def connect(self) -> bool:
+    async def connect(self) -> None:
         self._connection_event.clear()
         self._connect_result = None
         self._mqtt_client.username_pw_set(
             self._username, self._passwd
         )
 
-        # Setup SSL if needed
         if self._is_tls:
             await self._setup_ssl()
 
@@ -451,36 +483,70 @@ class DaliGateway:
             await asyncio.wait_for(self._connection_event.wait(), timeout=10)
 
             if self._connect_result == 0:
-                return True
-        except (ConnectionRefusedError, OSError, asyncio.TimeoutError) as err:
-            _LOGGER.error("Failed to connect to MQTT broker: %s", str(err))
-            return False
+                _LOGGER.info(
+                    "Successfully connected to gateway %s at %s:%s",
+                    self._gw_sn, self._gw_ip, self._port)
+                return
 
-        # Connection failed - log error and return False
+        except asyncio.TimeoutError as err:
+            _LOGGER.error(
+                "Timeout connecting to MQTT broker %s:%s",
+                self._gw_ip, self._port
+            )
+            raise DaliTimeoutError(
+                f"Connection timeout to gateway {self._gw_sn}",
+                self._gw_sn, ErrorCodes.CONNECTION_TIMEOUT
+            ) from err
+        except (ConnectionRefusedError, OSError) as err:
+            _LOGGER.error(
+                "Network error connecting to MQTT broker %s:%s: %s",
+                self._gw_ip, self._port, str(err)
+            )
+            raise DaliConnectionError(
+                f"Network error connecting to gateway {self._gw_sn}: {err}",
+                self._gw_sn, ErrorCodes.NETWORK_ERROR
+            ) from err
+
         if self._connect_result in (4, 5):
             _LOGGER.error(
-                "Connection failed due to authentication error (code %s). "
-                "Please press the gateway button and retry the connection",
-                self._connect_result
+                "Authentication failed for gateway %s (code %s). "
+                "Please press the gateway button and retry",
+                self._gw_sn, self._connect_result
+            )
+            raise AuthenticationError(
+                f"Authentication failed for gateway {self._gw_sn}. "
+                "Please press the gateway button and retry",
+                self._gw_sn, ErrorCodes.get_mqtt_error_code(
+                    self._connect_result or 0)
             )
         else:
             _LOGGER.error(
-                "Connection failed with result code %s. "
-                "Please check network connectivity and gateway status",
-                self._connect_result
+                "Connection failed for gateway %s with result code %s",
+                self._gw_sn, self._connect_result
             )
-        return False
+            raise DaliConnectionError(
+                f"Connection failed for gateway {self._gw_sn} "
+                f"with code {self._connect_result}",
+                self._gw_sn, ErrorCodes.get_mqtt_error_code(
+                    self._connect_result or 0)
+            )
 
-    async def disconnect(self) -> bool:
+    async def disconnect(self) -> None:
         try:
             self._mqtt_client.loop_stop()
             self._mqtt_client.disconnect()
             self._connection_event.clear()
-            _LOGGER.debug("Disconnected from MQTT broker")
-            return True
+            _LOGGER.info(
+                "Successfully disconnected from gateway %s", self._gw_sn)
         except Exception as exc:  # pylint: disable=broad-exception-caught
-            _LOGGER.error("Error during disconnect: %s", exc)
-            return False
+            _LOGGER.error(
+                "Error during disconnect from gateway %s: %s",
+                self._gw_sn, exc
+            )
+            raise DaliConnectionError(
+                f"Failed to disconnect from gateway {self._gw_sn}: {exc}",
+                self._gw_sn, ErrorCodes.DISCONNECT_ERROR
+            ) from exc
 
     async def get_version(self) -> Optional[VersionType]:
         self._version_received = asyncio.Event()
@@ -490,17 +556,25 @@ class DaliGateway:
             "gwSn": self._gw_sn
         }
 
-        _LOGGER.debug("Sending get version command: %s", payload)
+        _LOGGER.debug(
+            "Gateway %s: Sending get version command",
+            self._gw_sn
+        )
         self._mqtt_client.publish(self._pub_topic, json.dumps(payload))
 
         try:
             await asyncio.wait_for(self._version_received.wait(), timeout=30.0)
         except asyncio.TimeoutError:
-            _LOGGER.warning("Timeout waiting for version")
+            _LOGGER.warning(
+                "Gateway %s: Timeout waiting for version response",
+                self._gw_sn
+            )
 
         _LOGGER.info(
-            "Version search completed, found version: %s",
-            self._version_result
+            "Gateway %s: Version retrieved - SW: %s, FW: %s",
+            self._gw_sn,
+            self._version_result["software"] if self._version_result else "N/A",
+            self._version_result["firmware"] if self._version_result else "N/A"
         )
         return self._version_result
 
@@ -513,17 +587,23 @@ class DaliGateway:
             "gwSn": self._gw_sn
         }
 
-        _LOGGER.debug("Sending search devices command: %s", search_payload)
+        _LOGGER.debug(
+            "Gateway %s: Sending device discovery command",
+            self._gw_sn
+        )
         self._mqtt_client.publish(self._pub_topic, json.dumps(search_payload))
 
         try:
             await asyncio.wait_for(self._devices_received.wait(), timeout=30.0)
         except asyncio.TimeoutError:
-            _LOGGER.warning("Timeout waiting for devices list")
+            _LOGGER.warning(
+                "Gateway %s: Timeout waiting for device discovery response",
+                self._gw_sn
+            )
 
         _LOGGER.info(
-            "Device search completed, found %d devices",
-            len(self._devices_result)
+            "Gateway %s: Device discovery completed, found %d device(s)",
+            self._gw_sn, len(self._devices_result)
         )
         return self._devices_result
 
@@ -536,16 +616,23 @@ class DaliGateway:
             "gwSn": self._gw_sn
         }
 
-        _LOGGER.debug("Sending search groups command: %s", search_payload)
+        _LOGGER.debug(
+            "Gateway %s: Sending group discovery command",
+            self._gw_sn
+        )
         self._mqtt_client.publish(self._pub_topic, json.dumps(search_payload))
 
         try:
             await asyncio.wait_for(self._groups_received.wait(), timeout=30.0)
         except asyncio.TimeoutError:
-            _LOGGER.warning("Timeout waiting for groups list")
+            _LOGGER.warning(
+                "Gateway %s: Timeout waiting for group discovery response",
+                self._gw_sn
+            )
 
         _LOGGER.info(
-            "Group search completed, found %d groups", len(self._groups_result)
+            "Gateway %s: Group discovery completed, found %d group(s)",
+            self._gw_sn, len(self._groups_result)
         )
         return self._groups_result
 
@@ -558,16 +645,23 @@ class DaliGateway:
             "gwSn": self._gw_sn
         }
 
-        _LOGGER.debug("Sending search scenes command: %s", search_payload)
+        _LOGGER.debug(
+            "Gateway %s: Sending scene discovery command",
+            self._gw_sn
+        )
         self._mqtt_client.publish(self._pub_topic, json.dumps(search_payload))
 
         try:
             await asyncio.wait_for(self._scenes_received.wait(), timeout=30.0)
         except asyncio.TimeoutError:
-            _LOGGER.warning("Timeout waiting for scenes list")
+            _LOGGER.warning(
+                "Gateway %s: Timeout waiting for scene discovery response",
+                self._gw_sn
+            )
 
         _LOGGER.info(
-            "Scene search completed, found %d scenes", len(self._scenes_result)
+            "Gateway %s: Scene discovery completed, found %d scene(s)",
+            self._gw_sn, len(self._scenes_result)
         )
         return self._scenes_result
 
