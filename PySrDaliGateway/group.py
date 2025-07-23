@@ -97,12 +97,11 @@ class Group:
 
         self._send_properties(properties)
         _LOGGER.debug(
-            "Turned on group %s with properties: %s",
-            self._id,
-            properties
+            "Group %s (%s) turned on with properties: %s",
+            self._id, self.name, properties
         )
 
     def turn_off(self) -> None:
         properties = [self._create_property(20, "bool", False)]
         self._send_properties(properties)
-        _LOGGER.debug("Turned off group %s", self._id)
+        _LOGGER.debug("Group %s (%s) turned off", self._id, self.name)

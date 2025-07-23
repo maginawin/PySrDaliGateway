@@ -131,15 +131,14 @@ class Device:
 
         self._send_properties(properties)
         _LOGGER.debug(
-            "Turned on light %s with properties: %s",
-            self.dev_id,
-            properties
+            "Device %s (%s) turned on with properties: %s",
+            self.dev_id, self.name, properties
         )
 
     def turn_off(self) -> None:
         properties = [self._create_property(20, "bool", False)]
         self._send_properties(properties)
-        _LOGGER.debug("Turned off light %s", self.dev_id)
+        _LOGGER.debug("Device %s (%s) turned off", self.dev_id, self.name)
 
     def read_status(self) -> None:
         self._gateway.command_read_dev(
@@ -147,7 +146,10 @@ class Device:
             self._channel,
             self._address
         )
-        _LOGGER.debug("Reading status for device %s", self.dev_id)
+        _LOGGER.debug(
+            "Requesting status for device %s (%s)",
+            self.dev_id, self.name
+        )
 
     def press_button(self, button_id: int, event_type: int = 1) -> None:
         properties = [self._create_property(
@@ -158,8 +160,8 @@ class Device:
 
         self._send_properties(properties)
         _LOGGER.debug(
-            "Pressed button %d on panel %s with event type %d",
-            button_id, self.dev_id, event_type
+            "Button %d pressed on device %s (%s) with event type %d",
+            button_id, self.dev_id, self.name, event_type
         )
 
     def set_sensor_enabled(self, enabled: bool) -> None:
@@ -170,8 +172,8 @@ class Device:
             enabled
         )
         _LOGGER.debug(
-            "Set sensor %s enabled state to %s",
-            self.dev_id, enabled
+            "Sensor %s (%s) enabled state set to %s",
+            self.dev_id, self.name, enabled
         )
 
     def get_sensor_enabled(self) -> None:
@@ -181,6 +183,6 @@ class Device:
             self._address
         )
         _LOGGER.debug(
-            "Requesting sensor %s enabled state",
-            self.dev_id
+            "Requesting sensor %s (%s) enabled state",
+            self.dev_id, self.name
         )

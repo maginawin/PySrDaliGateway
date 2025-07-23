@@ -11,6 +11,8 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from typing import Any
 
 from .types import DaliGatewayType
+from .exceptions import DiscoveryError, NetworkError
+from .error_codes import ErrorCodes
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,10 +29,18 @@ class DaliGatewayDiscovery:
 
     def _get_valid_interfaces(self) -> list[dict]:
         try:
-            return self._detect_interfaces()
+            interfaces = self._detect_interfaces()
+            if not interfaces:
+                _LOGGER.warning(
+                    "No network interfaces detected, using default")
+                return [self._create_default_interface()]
+            return interfaces
         except Exception as e:  # pylint: disable=broad-exception-caught
-            _LOGGER.warning("Error detecting network interfaces: %s", e)
-            return [self._create_default_interface()]
+            _LOGGER.error("Error detecting network interfaces: %s", e)
+            raise NetworkError(
+                f"Failed to detect network interfaces: {e}",
+                error_code=ErrorCodes.DISCOVERY_NO_INTERFACES
+            ) from e
 
     def _detect_interfaces(self) -> list[dict]:
         interfaces = []
@@ -109,15 +119,23 @@ class DaliGatewayDiscovery:
     async def discover_gateways(self) -> list[DaliGatewayType]:
         try:
             return await self._do_discovery()
+        except DiscoveryError:
+            raise
         except Exception as e:  # pylint: disable=broad-exception-caught
-            _LOGGER.error("Error during discovery: %s", e)
-            return []
+            _LOGGER.error("Unexpected error during discovery: %s", e)
+            raise DiscoveryError(
+                f"Gateway discovery failed: {e}",
+                error_code=ErrorCodes.DISCOVERY_FAILED
+            ) from e
 
     async def _do_discovery(self) -> list[DaliGatewayType]:
         valid_interfaces = self._get_valid_interfaces()
         if not valid_interfaces:
-            _LOGGER.warning("No valid network interfaces found")
-            return []
+            _LOGGER.error("No valid network interfaces found")
+            raise NetworkError(
+                "No valid network interfaces found for gateway discovery",
+                error_code=ErrorCodes.DISCOVERY_NO_INTERFACES
+            )
 
         _LOGGER.info(
             "Starting gateway discovery on %d interfaces",
@@ -129,7 +147,10 @@ class DaliGatewayDiscovery:
             message = self._prepare_discovery_message()
         except Exception as e:  # pylint: disable=broad-exception-caught
             _LOGGER.error("Failed to prepare discovery message: %s", e)
-            return []
+            raise DiscoveryError(
+                f"Failed to prepare discovery message: {e}",
+                error_code=ErrorCodes.DISCOVERY_MESSAGE_ERROR
+            ) from e
 
         # Create and configure listener socket
         listen_sock = None
@@ -142,7 +163,10 @@ class DaliGatewayDiscovery:
 
         except Exception as e:  # pylint: disable=broad-exception-caught
             _LOGGER.error("Error during gateway discovery: %s", e)
-            return []
+            raise DiscoveryError(
+                f"Error during gateway discovery: {e}",
+                error_code=ErrorCodes.DISCOVERY_FAILED
+            ) from e
 
         finally:
             if listen_sock:
@@ -171,14 +195,11 @@ class DaliGatewayDiscovery:
     ) -> None:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-        # Try to enable port reuse if available on the platform
         try:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         except (AttributeError, OSError):
-            # SO_REUSEPORT might not be available on all platforms
             pass
 
-        # Try to bind to the preferred port, with fallback options
         port_to_bind = self._bind_to_available_port(sock)
         if port_to_bind != self.LISTEN_PORT:
             _LOGGER.warning(
@@ -197,14 +218,12 @@ class DaliGatewayDiscovery:
     def _bind_to_available_port(self, sock: socket.socket) -> int:
         ports_to_try = [self.LISTEN_PORT]
 
-        # Add some alternative ports as fallback
         for i in range(1, 10):
             alternative_port = self.LISTEN_PORT + i
             if alternative_port not in ports_to_try:
                 ports_to_try.append(alternative_port)
 
-        # Also try some random ports if needed
-        ports_to_try.extend([0])  # Let system choose
+        ports_to_try.extend([0])
 
         last_exception = None
         for port in ports_to_try:
@@ -218,7 +237,6 @@ class DaliGatewayDiscovery:
                     break
                 continue
 
-        # If we get here, all attempts failed
         raise OSError(
             f"Unable to bind to any port. Last error: {last_exception}")
 
@@ -261,7 +279,6 @@ class DaliGatewayDiscovery:
     def _cleanup_multicast_groups(
         self, sock: socket.socket, interfaces: list[dict]
     ) -> None:
-        """Clean up multicast group memberships before closing socket."""
         for interface in interfaces:
             if interface["address"] != "0.0.0.0":
                 self._leave_multicast_group(sock, interface)
@@ -271,7 +288,6 @@ class DaliGatewayDiscovery:
     def _leave_multicast_group(
         self, sock: socket.socket, interface: dict
     ) -> None:
-        """Leave a multicast group."""
         try:
             mreq = socket.inet_aton(self.MULTICAST_ADDR) + \
                 socket.inet_aton(interface["address"])
@@ -362,7 +378,7 @@ class DaliGatewayDiscovery:
                     data, addr = sock.recvfrom(1024)
                     receive_count += 1
 
-                    _LOGGER.info(
+                    _LOGGER.debug(
                         "Received discovery response #%d from %s:%d",
                         receive_count, addr[0], addr[1])
 
@@ -384,8 +400,9 @@ class DaliGatewayDiscovery:
                         unique_gateways.append(gateway)
                         seen_sns.add(gateway["gw_sn"])
                         _LOGGER.info(
-                            "Found gateway %s (%s) at %s",
-                            gateway["name"], gateway["gw_sn"], gateway["gw_ip"]
+                            "Discovered DALI gateway: %s (SN: %s) at %s:%s",
+                            gateway["name"], gateway["gw_sn"],
+                            gateway["gw_ip"], gateway["port"]
                         )
 
                         # Signal that first gateway is found
@@ -439,8 +456,8 @@ class DaliGatewayDiscovery:
             _LOGGER.error("Error during concurrent discovery: %s", e)
 
         elapsed_time = asyncio.get_event_loop().time() - start_time
-        _LOGGER.debug(
-            "Discovery completed: Found %d gateways in %.2f seconds",
+        _LOGGER.info(
+            "Gateway discovery completed: Found %d gateway(s) in %.2f seconds",
             len(unique_gateways), elapsed_time
         )
 
@@ -478,7 +495,10 @@ class DaliGatewayDiscovery:
         self, raw_data: Any
     ) -> DaliGatewayType | None:
         try:
-            _LOGGER.debug("Processing discovery gateway data: %s", raw_data)
+            _LOGGER.debug(
+                "Processing discovery gateway data: %s",
+                raw_data
+            )
             encrypted_user = raw_data.get("username", "")
             encrypted_pass = raw_data.get("passwd", "")
 
