@@ -11,8 +11,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from typing import Any
 
 from .types import DaliGatewayType
-from .exceptions import DiscoveryError, NetworkError
-from .error_codes import ErrorCodes
+from .exceptions import DaliGatewayError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,9 +36,8 @@ class DaliGatewayDiscovery:
             return interfaces
         except Exception as e:  # pylint: disable=broad-exception-caught
             _LOGGER.error("Error detecting network interfaces: %s", e)
-            raise NetworkError(
-                f"Failed to detect network interfaces: {e}",
-                error_code=ErrorCodes.DISCOVERY_NO_INTERFACES
+            raise DaliGatewayError(
+                f"Failed to detect network interfaces: {e}"
             ) from e
 
     def _detect_interfaces(self) -> list[dict]:
@@ -119,22 +117,18 @@ class DaliGatewayDiscovery:
     async def discover_gateways(self) -> list[DaliGatewayType]:
         try:
             return await self._do_discovery()
-        except DiscoveryError:
-            raise
         except Exception as e:  # pylint: disable=broad-exception-caught
             _LOGGER.error("Unexpected error during discovery: %s", e)
-            raise DiscoveryError(
-                f"Gateway discovery failed: {e}",
-                error_code=ErrorCodes.DISCOVERY_FAILED
+            raise DaliGatewayError(
+                f"Gateway discovery failed: {e}"
             ) from e
 
     async def _do_discovery(self) -> list[DaliGatewayType]:
         valid_interfaces = self._get_valid_interfaces()
         if not valid_interfaces:
             _LOGGER.error("No valid network interfaces found")
-            raise NetworkError(
-                "No valid network interfaces found for gateway discovery",
-                error_code=ErrorCodes.DISCOVERY_NO_INTERFACES
+            raise DaliGatewayError(
+                "No valid network interfaces found for gateway discovery"
             )
 
         _LOGGER.info(
@@ -147,9 +141,8 @@ class DaliGatewayDiscovery:
             message = self._prepare_discovery_message()
         except Exception as e:  # pylint: disable=broad-exception-caught
             _LOGGER.error("Failed to prepare discovery message: %s", e)
-            raise DiscoveryError(
-                f"Failed to prepare discovery message: {e}",
-                error_code=ErrorCodes.DISCOVERY_MESSAGE_ERROR
+            raise DaliGatewayError(
+                f"Failed to prepare discovery message: {e}"
             ) from e
 
         # Create and configure listener socket
@@ -163,9 +156,8 @@ class DaliGatewayDiscovery:
 
         except Exception as e:  # pylint: disable=broad-exception-caught
             _LOGGER.error("Error during gateway discovery: %s", e)
-            raise DiscoveryError(
-                f"Error during gateway discovery: {e}",
-                error_code=ErrorCodes.DISCOVERY_FAILED
+            raise DaliGatewayError(
+                f"Error during gateway discovery: {e}"
             ) from e
 
         finally:

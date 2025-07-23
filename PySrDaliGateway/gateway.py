@@ -15,8 +15,7 @@ import asyncio
 import time
 import logging
 from .const import CA_CERT_PATH
-from .exceptions import DaliConnectionError, AuthenticationError, DaliTimeoutError
-from .error_codes import ErrorCodes
+from .exceptions import DaliGatewayError
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -447,9 +446,9 @@ class DaliGateway:
             await loop.run_in_executor(None, self._setup_ssl_sync)
         except Exception as e:
             _LOGGER.error("Failed to configure SSL/TLS: %s", str(e))
-            raise DaliConnectionError(
+            raise DaliGatewayError(
                 f"SSL/TLS configuration failed: {e}",
-                self._gw_sn, ErrorCodes.SSL_CONFIG_ERROR
+                self._gw_sn
             ) from e
 
     def _setup_ssl_sync(self) -> None:
@@ -493,18 +492,18 @@ class DaliGateway:
                 "Timeout connecting to MQTT broker %s:%s",
                 self._gw_ip, self._port
             )
-            raise DaliTimeoutError(
+            raise DaliGatewayError(
                 f"Connection timeout to gateway {self._gw_sn}",
-                self._gw_sn, ErrorCodes.CONNECTION_TIMEOUT
+                self._gw_sn
             ) from err
         except (ConnectionRefusedError, OSError) as err:
             _LOGGER.error(
                 "Network error connecting to MQTT broker %s:%s: %s",
                 self._gw_ip, self._port, str(err)
             )
-            raise DaliConnectionError(
+            raise DaliGatewayError(
                 f"Network error connecting to gateway {self._gw_sn}: {err}",
-                self._gw_sn, ErrorCodes.NETWORK_ERROR
+                self._gw_sn
             ) from err
 
         if self._connect_result in (4, 5):
@@ -513,22 +512,19 @@ class DaliGateway:
                 "Please press the gateway button and retry",
                 self._gw_sn, self._connect_result
             )
-            raise AuthenticationError(
+            raise DaliGatewayError(
                 f"Authentication failed for gateway {self._gw_sn}. "
                 "Please press the gateway button and retry",
-                self._gw_sn, ErrorCodes.get_mqtt_error_code(
-                    self._connect_result or 0)
+                self._gw_sn
             )
         else:
             _LOGGER.error(
                 "Connection failed for gateway %s with result code %s",
                 self._gw_sn, self._connect_result
             )
-            raise DaliConnectionError(
+            raise DaliGatewayError(
                 f"Connection failed for gateway {self._gw_sn} "
-                f"with code {self._connect_result}",
-                self._gw_sn, ErrorCodes.get_mqtt_error_code(
-                    self._connect_result or 0)
+                f"with code {self._connect_result}"
             )
 
     async def disconnect(self) -> None:
@@ -543,9 +539,8 @@ class DaliGateway:
                 "Error during disconnect from gateway %s: %s",
                 self._gw_sn, exc
             )
-            raise DaliConnectionError(
-                f"Failed to disconnect from gateway {self._gw_sn}: {exc}",
-                self._gw_sn, ErrorCodes.DISCONNECT_ERROR
+            raise DaliGatewayError(
+                f"Failed to disconnect from gateway {self._gw_sn}: {exc}"
             ) from exc
 
     async def get_version(self) -> Optional[VersionType]:

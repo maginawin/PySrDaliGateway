@@ -6,14 +6,7 @@ import logging
 
 from PySrDaliGateway.discovery import DaliGatewayDiscovery
 from PySrDaliGateway.gateway import DaliGateway
-from PySrDaliGateway.exceptions import (
-    DaliConnectionError,
-    AuthenticationError,
-    DiscoveryError,
-    NetworkError,
-    DaliTimeoutError
-)
-from PySrDaliGateway.error_codes import ErrorCodes
+from PySrDaliGateway.exceptions import DaliGatewayError
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -41,17 +34,8 @@ async def test_discover_and_connect():
                 "Check network connectivity and gateway power"
             )
             return False
-    except DiscoveryError as e:
-        if e.error_code == ErrorCodes.DISCOVERY_NO_INTERFACES:
-            _LOGGER.error(
-                "No network interfaces available for discovery: %s", e)
-        elif e.error_code == ErrorCodes.DISCOVERY_TIMEOUT:
-            _LOGGER.error("Discovery timeout - no gateways responded: %s", e)
-        else:
-            _LOGGER.error("Discovery failed: %s", e)
-        return False
-    except NetworkError as e:
-        _LOGGER.error("Network error during discovery: %s", e)
+    except DaliGatewayError as e:
+        _LOGGER.error("Discovery failed: %s", e)
         return False
 
     _LOGGER.info("✓ Found %d gateway(s)", len(gateways))
@@ -74,46 +58,8 @@ async def test_discover_and_connect():
     try:
         await gateway.connect()
         _LOGGER.info("✓ Successfully connected to gateway!")
-    except AuthenticationError as e:
-        if e.error_code == ErrorCodes.AUTH_REQUIRED:
-            _LOGGER.error(
-                "Authentication required - "
-                "please press the gateway button and retry. "
-                "Gateway: %s, Error: %s", e.gateway_sn, e
-            )
-        elif e.error_code == ErrorCodes.AUTH_INVALID_CREDENTIALS:
-            _LOGGER.error(
-                "Invalid credentials for gateway %s: %s", e.gateway_sn, e
-            )
-        else:
-            _LOGGER.error("Authentication failed: %s", e)
-        return False
-    except DaliConnectionError as e:
-        if e.error_code == ErrorCodes.NETWORK_ERROR:
-            _LOGGER.error(
-                "Network error connecting to gateway %s - "
-                "check connectivity: %s",
-                e.gateway_sn, e
-            )
-        elif e.error_code == ErrorCodes.MQTT_BROKER_UNAVAILABLE:
-            _LOGGER.error(
-                "MQTT broker unavailable on gateway %s: %s", e.gateway_sn, e
-            )
-        elif e.error_code == ErrorCodes.SSL_CONFIG_ERROR:
-            _LOGGER.error(
-                "SSL configuration error for gateway %s: %s", e.gateway_sn, e
-            )
-        else:
-            _LOGGER.error("Connection error: %s", e)
-        return False
-    except DaliTimeoutError as e:
-        if e.error_code == ErrorCodes.CONNECTION_TIMEOUT:
-            _LOGGER.error(
-                "Connection timeout to gateway %s - gateway may be busy: %s",
-                e.gateway_sn, e
-            )
-        else:
-            _LOGGER.error("Timeout error: %s", e)
+    except DaliGatewayError as e:
+        _LOGGER.error("Connection error: %s", e)
         return False
 
     # Step 3: Test basic functionality
@@ -153,15 +99,9 @@ async def test_discover_and_connect():
     try:
         await gateway.disconnect()
         _LOGGER.info("✓ Disconnected successfully")
-    except DaliConnectionError as e:
-        if e.error_code == ErrorCodes.DISCONNECT_ERROR:
-            _LOGGER.warning(
-                "Disconnect error for gateway %s "
-                "(connection may already be closed): %s",
-                e.gateway_sn, e
-            )
-        else:
-            _LOGGER.error("Unexpected disconnect error: %s", e)
+    except DaliGatewayError as e:
+        _LOGGER.error("Disconnect error: %s", e)
+        return False
 
     _LOGGER.info("=== Test completed successfully! ===")
     return True
