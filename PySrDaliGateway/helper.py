@@ -7,7 +7,7 @@ def is_light_device(dev_type: str) -> bool:
 
 
 def is_motion_sensor(dev_type: str) -> bool:
-    return dev_type == "0201"
+    return dev_type.startswith("0201")
 
 
 def is_illuminance_sensor(dev_type: str) -> bool:
