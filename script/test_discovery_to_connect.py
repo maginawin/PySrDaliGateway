@@ -81,6 +81,13 @@ async def test_discover_and_connect():
                 device["channel"], device["address"]
             )
 
+        # Test readDev
+        _LOGGER.info("Testing readDev...")
+        for device in devices:
+            gateway.command_read_dev(
+                device["dev_type"], device["channel"], device["address"]
+            )
+
         # Test group discovery
         _LOGGER.info("Testing group discovery...")
         groups = await gateway.discover_groups()
