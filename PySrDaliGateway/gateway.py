@@ -75,6 +75,55 @@ class DaliGateway:
         self._on_energy_report: Optional[Callable[[str, float], None]] = None
         self._on_sensor_on_off: Optional[Callable[[str, bool], None]] = None
 
+        self._window_ms = 100
+        self._pending_requests: dict[str, dict[str, dict]] = {}
+        self._batch_timer: dict[str, asyncio.TimerHandle] = {}  # cmd -> timer
+
+    def _get_device_key(self, dev_type: str, channel: int, address: int) -> str:
+        return f"{dev_type}_{channel}_{address}"
+
+    def add_request(self, cmd: str, dev_type: str, channel: int, address: int, data: dict) -> None:
+        if cmd not in self._pending_requests:
+            self._pending_requests[cmd] = {}
+
+        device_key = self._get_device_key(dev_type, channel, address)
+        self._pending_requests[cmd][device_key] = data
+
+        if self._batch_timer.get(cmd) is None:
+            self._batch_timer[cmd] = asyncio.get_event_loop().call_later(
+                self._window_ms / 1000.0,
+                self._flush_batch,
+                cmd
+            )
+
+    def _flush_batch(self, cmd: str) -> None:
+        if not self._pending_requests.get(cmd):
+            return
+
+        batch_data = []
+        for data in self._pending_requests[cmd].values():
+            batch_data.append(data)
+
+        command = {
+            "cmd": cmd,
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+            "data": batch_data
+        }
+
+        self._mqtt_client.publish(
+            self._pub_topic,
+            json.dumps(command)
+        )
+
+        _LOGGER.debug(
+            "Gateway %s: Sent batch readDev %s",
+            self._gw_sn, command
+        )
+
+        self._pending_requests[cmd].clear()
+        self._batch_timer.pop(cmd)
+
     def to_dict(self) -> DaliGatewayType:
         """Convert DaliGateway to dictionary"""
         return {
@@ -367,7 +416,9 @@ class DaliGateway:
             if device not in self._devices_result:
                 self._devices_result.append(device)
 
-        self._devices_received.set()
+        search_status = payload_json["searchStatus"]
+        if search_status == 1 or search_status == 0:
+            self._devices_received.set()
 
     def _process_get_scene_response(self, payload_json: dict) -> None:
         for channel_scenes in payload_json["scene"]:
@@ -664,36 +715,22 @@ class DaliGateway:
         self, dev_type: str, channel: int,
         address: int, properties: list
     ) -> None:
-        command = {
-            "cmd": "writeDev",
-            "msgId": str(int(time.time())),
-            "gwSn": self._gw_sn,
-            "data": [{
-                "devType": dev_type,
-                "channel": channel,
-                "address": address,
-                "property": properties
-            }]
-        }
-        command_json = json.dumps(command)
-        self._mqtt_client.publish(self._pub_topic, command_json)
+        self.add_request("writeDev", dev_type, channel, address, {
+            "devType": dev_type,
+            "channel": channel,
+            "address": address,
+            "property": properties
+        })
 
     def command_read_dev(
         self, dev_type: str, channel: int,
         address: int
     ) -> None:
-        command = {
-            "cmd": "readDev",
-            "msgId": str(int(time.time())),
-            "gwSn": self._gw_sn,
-            "data": [{
-                "devType": dev_type,
-                "channel": channel,
-                "address": address,
-            }]
-        }
-        command_json = json.dumps(command)
-        self._mqtt_client.publish(self._pub_topic, command_json)
+        self.add_request("readDev", dev_type, channel, address, {
+            "devType": dev_type,
+            "channel": channel,
+            "address": address
+        })
 
     def command_write_group(
         self, group_id: int, channel: int,
