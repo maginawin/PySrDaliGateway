@@ -43,4 +43,4 @@ jobs:
 
       - name: Type check with mypy
         run: |
-          mypy --show-error-codes --pretty custom_components/dali_center
+          mypy --show-error-codes --pretty PySrDaliGateway
