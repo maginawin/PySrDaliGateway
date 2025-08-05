@@ -6,10 +6,13 @@ import ipaddress
 import psutil
 import json
 import uuid
+import logging
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from typing import Any
+from typing import Any, Optional
 
 from .types import DaliGatewayType
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class NetworkManager:
@@ -17,14 +20,29 @@ class NetworkManager:
 
     def get_valid_interfaces(self) -> list[dict]:
         interfaces = []
+        _LOGGER.debug("Scanning network interfaces for discovery")
         for interface_name, addrs in psutil.net_if_addrs().items():
             for addr in addrs:
                 if addr.family == socket.AF_INET:
                     ip = addr.address
                     if self.is_valid_ip(ip):
-                        interfaces.append(
-                            self.create_interface_info(interface_name, ip)
+                        interface_info = self.create_interface_info(
+                            interface_name, ip)
+                        interfaces.append(interface_info)
+                        _LOGGER.debug(
+                            "Found valid interface: %s (%s)",
+                            interface_name, ip
                         )
+                    else:
+                        _LOGGER.debug(
+                            "Skipping invalid IP: %s on %s",
+                            ip, interface_name
+                        )
+
+        _LOGGER.debug(
+            "Network scan complete. %d valid interfaces found",
+            len(interfaces)
+        )
         return interfaces
 
     def is_valid_ip(self, ip: str) -> bool:
@@ -69,12 +87,14 @@ class MessageCryptor:
     def random_key(self) -> str:
         return uuid.uuid4().hex[:16]
 
-    def prepare_discovery_message(self) -> bytes:
+    def prepare_discovery_message(self, gw_sn: Optional[str] = None) -> bytes:
         key = self.random_key()
         msg_enc = self.encrypt_data("discover", key)
         combined_data = key + msg_enc
         cmd = self.encrypt_data(combined_data, self.SR_KEY)
         message_dict = {"cmd": cmd, "type": "HA"}
+        if gw_sn:
+            message_dict["gwSn"] = gw_sn
         message_json = json.dumps(message_dict)
         return message_json.encode("utf-8")
 
@@ -125,14 +145,24 @@ class MulticastSender:
         ) + [0]:
             try:
                 sock.bind(("0.0.0.0", port))
+                _LOGGER.debug(
+                    "Successfully bound listener socket to port %d", port)
                 return
             except OSError as exc:
                 if port == 0:
+                    _LOGGER.error(
+                        "Unable to bind to any port after trying all options")
                     raise OSError("Unable to bind to any port") from exc
+                _LOGGER.debug("Port %d unavailable, trying next port", port)
 
     def _join_multicast_groups(
         self, sock: socket.socket, interfaces: list[dict]
     ) -> None:
+        _LOGGER.debug(
+            "Joining multicast groups on %d interfaces",
+            len(interfaces)
+        )
+
         for interface in interfaces:
             mreq = socket.inet_aton(self.MULTICAST_ADDR) + \
                 socket.inet_aton(interface["address"])
@@ -141,7 +171,13 @@ class MulticastSender:
                                 socket.IP_DROP_MEMBERSHIP, mreq)
             except socket.error:
                 pass
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+
+            sock.setsockopt(socket.IPPROTO_IP,
+                            socket.IP_ADD_MEMBERSHIP, mreq)
+            _LOGGER.debug(
+                "Joined multicast group on interface %s (%s)",
+                interface["name"], interface["address"]
+            )
 
     async def _send_on_interface(self, interface: dict, message: bytes) -> None:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
@@ -150,6 +186,10 @@ class MulticastSender:
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF,
                             socket.inet_aton(interface["address"]))
             sock.sendto(message, (self.MULTICAST_ADDR, self.SEND_PORT))
+            _LOGGER.debug(
+                "Sent discovery message via %s (%s)",
+                interface["name"], interface["address"]
+            )
 
 
 class DaliGatewayDiscovery:
@@ -163,12 +203,37 @@ class DaliGatewayDiscovery:
         self.cryptor = MessageCryptor()
         self.sender = MulticastSender()
 
-    async def discover_gateways(self) -> list[DaliGatewayType]:
+    async def discover_gateways(
+        self, gw_sn: Optional[str] = None
+    ) -> list[DaliGatewayType]:
+        _LOGGER.info(
+            "Starting DALI gateway discovery%s",
+            f" for specific gateway: {gw_sn}" if gw_sn else ""
+        )
+
         interfaces = self.network_manager.get_valid_interfaces()
-        message = self.cryptor.prepare_discovery_message()
+        _LOGGER.debug(
+            "Found %d valid network interfaces: %s",
+            len(interfaces), [iface["name"] for iface in interfaces]
+        )
+
+        if not interfaces:
+            _LOGGER.warning("No valid network interfaces found for discovery")
+            return []
+
+        message = self.cryptor.prepare_discovery_message(gw_sn)
         listen_sock = self.sender.create_listener_socket(interfaces)
+
         try:
-            return await self._run_discovery(listen_sock, interfaces, message)
+            gateways = await self._run_discovery(
+                listen_sock, interfaces,
+                message
+            )
+            _LOGGER.info(
+                "Discovery completed. Found %d gateway(s)",
+                len(gateways)
+            )
+            return gateways
         finally:
             self.sender.cleanup_socket(listen_sock, interfaces)
 
@@ -204,15 +269,31 @@ class DaliGatewayDiscovery:
         self, interfaces: list[dict], message: bytes,
         first_gateway_found: asyncio.Event, start_time: float
     ) -> None:
+        send_count = 0
         while not first_gateway_found.is_set():
             if asyncio.get_event_loop().time() - \
                     start_time >= self.DISCOVERY_TIMEOUT:
+                _LOGGER.info(
+                    "Discovery timeout reached after %.1f seconds",
+                    self.DISCOVERY_TIMEOUT
+                )
                 break
+
+            send_count += 1
+            _LOGGER.debug(
+                "Sending discovery message #%d to %d interfaces",
+                send_count, len(interfaces)
+            )
             await self.sender.send_multicast_message(interfaces, message)
+
             try:
                 await asyncio.wait_for(
                     first_gateway_found.wait(),
                     timeout=self.SEND_INTERVAL
+                )
+                _LOGGER.debug(
+                    "Gateway found, stopping sender loop after %d sends",
+                    send_count
                 )
                 break
             except asyncio.TimeoutError:
@@ -222,41 +303,74 @@ class DaliGatewayDiscovery:
         self, sock: socket.socket, first_gateway_found: asyncio.Event,
         start_time: float, unique_gateways: list[DaliGatewayType], seen_sns: set
     ) -> None:
+        _LOGGER.debug("Starting receiver loop, listening on socket")
+
         while not first_gateway_found.is_set():
             if asyncio.get_event_loop().time() - \
                     start_time >= self.DISCOVERY_TIMEOUT:
+                _LOGGER.debug("Receiver loop timeout reached")
                 break
             try:
                 await asyncio.sleep(0.1)
-                data, _ = sock.recvfrom(1024)
+                data, addr = sock.recvfrom(1024)
+                _LOGGER.debug(
+                    "Received response from %s, processing data", addr)
+
                 response_json = json.loads(data.decode("utf-8"))
                 raw_data = response_json.get("data")
+
                 if raw_data and raw_data.get("gwSn") not in seen_sns:
                     if gateway := self._process_gateway_data(raw_data):
+                        _LOGGER.info(
+                            "Discovered gateway: %s (%s) at %s:%s",
+                            gateway["name"], gateway["gw_sn"],
+                            gateway["gw_ip"], gateway["port"]
+                        )
                         unique_gateways.append(gateway)
                         seen_sns.add(gateway["gw_sn"])
                         first_gateway_found.set()
                         break
-            except (BlockingIOError,
-                    asyncio.CancelledError, json.JSONDecodeError
-                    ):
+                    else:
+                        _LOGGER.warning(
+                            "Failed to process gateway data from %s",
+                            addr
+                        )
+                elif raw_data and raw_data.get("gwSn") in seen_sns:
+                    _LOGGER.debug(
+                        "Ignoring duplicate gateway response: %s",
+                        raw_data.get("gwSn")
+                    )
+
+            except json.JSONDecodeError as exc:
+                _LOGGER.warning("Invalid JSON response from %s: %s", addr, exc)
+                continue
+            except (BlockingIOError, asyncio.CancelledError):
                 continue
 
     def _process_gateway_data(self, raw_data: Any) -> DaliGatewayType | None:
+        gw_sn = raw_data.get("gwSn")
+        if not gw_sn:
+            _LOGGER.warning("Gateway data missing required 'gwSn' field")
+            return None
+
+        _LOGGER.debug("Processing gateway data for: %s", gw_sn)
+
         encrypted_user = raw_data.get("username", "")
         encrypted_pass = raw_data.get("passwd", "")
+
         decrypted_user = self.cryptor.decrypt_data(
             encrypted_user, self.cryptor.SR_KEY)
         decrypted_pass = self.cryptor.decrypt_data(
             encrypted_pass, self.cryptor.SR_KEY)
+
         gateway_name = raw_data.get(
-            "name") or f"Dali Gateway {raw_data.get("gwSn")}"
+            "name") or f"Dali Gateway {gw_sn}"
         channel_total = [int(ch) for ch in raw_data.get(
             "channelTotal", []
         ) if isinstance(ch, (int, str)) and str(ch).isdigit()]
 
-        return DaliGatewayType(
-            gw_sn=raw_data.get("gwSn"),
+        gateway = DaliGatewayType(
+            gw_sn=gw_sn,
             gw_ip=raw_data.get("gwIp"),
             port=raw_data.get("port"),
             is_tls=raw_data.get("isMqttTls"),
@@ -265,3 +379,6 @@ class DaliGatewayDiscovery:
             passwd=decrypted_pass,
             channel_total=channel_total
         )
+
+        _LOGGER.debug("Successfully processed gateway: %s", gateway_name)
+        return gateway
