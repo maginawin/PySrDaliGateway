@@ -42,9 +42,8 @@ async def test_discover_and_connect():
 
     for i, gw in enumerate(gateways):
         _LOGGER.info(
-            "  Gateway %d: %s (%s) at %s:%s, username: %s, password: %s",
+            "  Gateway %d: %s (%s) at %s:%s",
             i + 1, gw["name"], gw["gw_sn"], gw["gw_ip"], gw["port"],
-            gw.get("username", "N/A"), gw.get("passwd", "N/A")
         )
 
     # Step 2: Connect to the first gateway
@@ -52,6 +51,7 @@ async def test_discover_and_connect():
     _LOGGER.info(
         "Step 2: Connecting to gateway '%s'...", gateway_config["name"]
     )
+    _LOGGER.info("gateway_config: %s", gateway_config)
 
     gateway = DaliGateway(gateway_config)
 
@@ -76,9 +76,8 @@ async def test_discover_and_connect():
     gateways = await discovery.discover_gateways(gateway_config["gw_sn"])
     for i, gw in enumerate(gateways):
         _LOGGER.info(
-            "  Gateway %d: %s (%s) at %s:%s, username: %s, password: %s",
+            "  Gateway %d: %s (%s) at %s:%s",
             i + 1, gw["name"], gw["gw_sn"], gw["gw_ip"], gw["port"],
-            gw.get("username", "N/A"), gw.get("passwd", "N/A")
         )
 
     if not gateways:
