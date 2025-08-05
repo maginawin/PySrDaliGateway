@@ -42,7 +42,7 @@ class DaliGateway:
 
         # MQTT client
         self._mqtt_client = paho_mqtt.Client(
-            paho_mqtt.CallbackAPIVersion.VERSION2,
+            callback_api_version=paho_mqtt.CallbackAPIVersion.VERSION2,
             client_id=f"ha_dali_center_{self._gw_sn}",
             protocol=paho_mqtt.MQTTv311
         )
