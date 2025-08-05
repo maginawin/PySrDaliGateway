@@ -120,15 +120,19 @@ class MulticastSender:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     def _bind_to_port(self, sock: socket.socket) -> None:
-        for port in [self.LISTEN_PORT] + list(range(self.LISTEN_PORT + 1, self.LISTEN_PORT + 10)) + [0]:
+        for port in [self.LISTEN_PORT] + list(
+            range(self.LISTEN_PORT + 1, self.LISTEN_PORT + 10)
+        ) + [0]:
             try:
                 sock.bind(("0.0.0.0", port))
                 return
-            except OSError:
+            except OSError as exc:
                 if port == 0:
-                    raise OSError("Unable to bind to any port")
+                    raise OSError("Unable to bind to any port") from exc
 
-    def _join_multicast_groups(self, sock: socket.socket, interfaces: list[dict]) -> None:
+    def _join_multicast_groups(
+        self, sock: socket.socket, interfaces: list[dict]
+    ) -> None:
         for interface in interfaces:
             mreq = socket.inet_aton(self.MULTICAST_ADDR) + \
                 socket.inet_aton(interface["address"])
@@ -168,11 +172,13 @@ class DaliGatewayDiscovery:
         finally:
             self.sender.cleanup_socket(listen_sock, interfaces)
 
-    async def _run_discovery(self, sock: socket.socket, interfaces: list[dict], message: bytes) -> list[DaliGatewayType]:
+    async def _run_discovery(
+        self, sock: socket.socket, interfaces: list[dict], message: bytes
+    ) -> list[DaliGatewayType]:
         start_time = asyncio.get_event_loop().time()
         first_gateway_found = asyncio.Event()
         unique_gateways: list[DaliGatewayType] = []
-        seen_sns = set()
+        seen_sns: set[str] = set()
 
         # Sender task
         sender_task = asyncio.create_task(self._sender_loop(
@@ -182,7 +188,10 @@ class DaliGatewayDiscovery:
         receiver_task = asyncio.create_task(self._receiver_loop(
             sock, first_gateway_found, start_time, unique_gateways, seen_sns))
 
-        _, pending = await asyncio.wait([sender_task, receiver_task], return_when=asyncio.FIRST_COMPLETED)
+        _, pending = await asyncio.wait(
+            [sender_task, receiver_task],
+            return_when=asyncio.FIRST_COMPLETED
+        )
         for task in pending:
             task.cancel()
             try:
@@ -191,24 +200,35 @@ class DaliGatewayDiscovery:
                 pass
         return unique_gateways
 
-    async def _sender_loop(self, interfaces: list[dict], message: bytes, first_gateway_found: asyncio.Event, start_time: float) -> None:
+    async def _sender_loop(
+        self, interfaces: list[dict], message: bytes,
+        first_gateway_found: asyncio.Event, start_time: float
+    ) -> None:
         while not first_gateway_found.is_set():
-            if asyncio.get_event_loop().time() - start_time >= self.DISCOVERY_TIMEOUT:
+            if asyncio.get_event_loop().time() - \
+                    start_time >= self.DISCOVERY_TIMEOUT:
                 break
             await self.sender.send_multicast_message(interfaces, message)
             try:
-                await asyncio.wait_for(first_gateway_found.wait(), timeout=self.SEND_INTERVAL)
+                await asyncio.wait_for(
+                    first_gateway_found.wait(),
+                    timeout=self.SEND_INTERVAL
+                )
                 break
             except asyncio.TimeoutError:
                 continue
 
-    async def _receiver_loop(self, sock: socket.socket, first_gateway_found: asyncio.Event, start_time: float, unique_gateways: list[DaliGatewayType], seen_sns: set) -> None:
+    async def _receiver_loop(
+        self, sock: socket.socket, first_gateway_found: asyncio.Event,
+        start_time: float, unique_gateways: list[DaliGatewayType], seen_sns: set
+    ) -> None:
         while not first_gateway_found.is_set():
-            if asyncio.get_event_loop().time() - start_time >= self.DISCOVERY_TIMEOUT:
+            if asyncio.get_event_loop().time() - \
+                    start_time >= self.DISCOVERY_TIMEOUT:
                 break
             try:
                 await asyncio.sleep(0.1)
-                data, addr = sock.recvfrom(1024)
+                data, _ = sock.recvfrom(1024)
                 response_json = json.loads(data.decode("utf-8"))
                 raw_data = response_json.get("data")
                 if raw_data and raw_data.get("gwSn") not in seen_sns:
@@ -217,7 +237,9 @@ class DaliGatewayDiscovery:
                         seen_sns.add(gateway["gw_sn"])
                         first_gateway_found.set()
                         break
-            except (BlockingIOError, asyncio.CancelledError, json.JSONDecodeError):
+            except (BlockingIOError,
+                    asyncio.CancelledError, json.JSONDecodeError
+                    ):
                 continue
 
     def _process_gateway_data(self, raw_data: Any) -> DaliGatewayType | None:
@@ -228,9 +250,10 @@ class DaliGatewayDiscovery:
         decrypted_pass = self.cryptor.decrypt_data(
             encrypted_pass, self.cryptor.SR_KEY)
         gateway_name = raw_data.get(
-            "name") or f"Dali Gateway {raw_data.get('gwSn')}"
+            "name") or f"Dali Gateway {raw_data.get("gwSn")}"
         channel_total = [int(ch) for ch in raw_data.get(
-            "channelTotal", []) if isinstance(ch, (int, str)) and str(ch).isdigit()]
+            "channelTotal", []
+        ) if isinstance(ch, (int, str)) and str(ch).isdigit()]
 
         return DaliGatewayType(
             gw_sn=raw_data.get("gwSn"),

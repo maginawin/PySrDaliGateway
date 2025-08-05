@@ -82,7 +82,9 @@ class DaliGateway:
     def _get_device_key(self, dev_type: str, channel: int, address: int) -> str:
         return f"{dev_type}_{channel}_{address}"
 
-    def add_request(self, cmd: str, dev_type: str, channel: int, address: int, data: dict) -> None:
+    def add_request(
+        self, cmd: str, dev_type: str, channel: int, address: int, data: dict
+    ) -> None:
         if cmd not in self._pending_requests:
             self._pending_requests[cmd] = {}
 
