@@ -65,4 +65,5 @@ Thumbs.db
 # Project specific
 old/
 CLAUDE.md
-DEVELOPMENT_WORKFLOW.md 
+
+.kilocode

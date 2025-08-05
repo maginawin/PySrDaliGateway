@@ -36,11 +36,11 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install minimal dependencies for mypy
+      - name: Install dependencies for mypy
         run: |
           python -m pip install --upgrade pip
-          pip install mypy types-paho-mqtt types-cryptography voluptuous
+          pip install -e .[dev]
 
       - name: Type check with mypy
         run: |
-          mypy --show-error-codes --pretty custom_components/dali_center
+          mypy --show-error-codes --pretty PySrDaliGateway

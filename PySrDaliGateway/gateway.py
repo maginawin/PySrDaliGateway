@@ -42,7 +42,7 @@ class DaliGateway:
 
         # MQTT client
         self._mqtt_client = paho_mqtt.Client(
-            paho_mqtt.CallbackAPIVersion.VERSION2,
+            callback_api_version=paho_mqtt.CallbackAPIVersion.VERSION2,
             client_id=f"ha_dali_center_{self._gw_sn}",
             protocol=paho_mqtt.MQTTv311
         )
@@ -82,7 +82,9 @@ class DaliGateway:
     def _get_device_key(self, dev_type: str, channel: int, address: int) -> str:
         return f"{dev_type}_{channel}_{address}"
 
-    def add_request(self, cmd: str, dev_type: str, channel: int, address: int, data: dict) -> None:
+    def add_request(
+        self, cmd: str, dev_type: str, channel: int, address: int, data: dict
+    ) -> None:
         if cmd not in self._pending_requests:
             self._pending_requests[cmd] = {}
 
