@@ -42,8 +42,9 @@ async def test_discover_and_connect():
 
     for i, gw in enumerate(gateways):
         _LOGGER.info(
-            "  Gateway %d: %s (%s) at %s:%s",
-            i + 1, gw["name"], gw["gw_sn"], gw["gw_ip"], gw["port"]
+            "  Gateway %d: %s (%s) at %s:%s, username: %s, password: %s",
+            i + 1, gw["name"], gw["gw_sn"], gw["gw_ip"], gw["port"],
+            gw.get("username", "N/A"), gw.get("passwd", "N/A")
         )
 
     # Step 2: Connect to the first gateway
@@ -62,9 +63,50 @@ async def test_discover_and_connect():
         _LOGGER.error("Connection error: %s", e)
         return False
 
+    # Step 2.1: Disconnect if already connected
+    try:
+        await gateway.disconnect()
+        _LOGGER.info("✓ Disconnected from gateway before re-connecting")
+    except DaliGatewayError as e:
+        _LOGGER.error("Disconnect error: %s", e)
+        return False
+
+    # Step 2.2: Re research connection
+    _LOGGER.info("Reconnecting to gateway...")
+    gateways = await discovery.discover_gateways(gateway_config["gw_sn"])
+    for i, gw in enumerate(gateways):
+        _LOGGER.info(
+            "  Gateway %d: %s (%s) at %s:%s, username: %s, password: %s",
+            i + 1, gw["name"], gw["gw_sn"], gw["gw_ip"], gw["port"],
+            gw.get("username", "N/A"), gw.get("passwd", "N/A")
+        )
+
+    if not gateways:
+        _LOGGER.error(
+            "No gateways found after re-discovery! "
+            "Check network connectivity and gateway power"
+        )
+        return False
+
+    new_gateway_config = gateways[0]
+    _LOGGER.info(
+        "Reconnecting to gateway '%s'...", new_gateway_config["name"]
+    )
+
+    new_gateway_config["username"] = gateway_config.get("username", "")
+    new_gateway_config["passwd"] = gateway_config.get("passwd", "")
+    _LOGGER.info("new_gateway_config: %s", new_gateway_config)
+
+    gateway = DaliGateway(new_gateway_config)
+
     # Step 3: Test basic functionality
     _LOGGER.info("Step 3: Testing device discovery...")
-
+    try:
+        await gateway.connect()
+        _LOGGER.info("✓ Successfully re-connected to gateway!")
+    except DaliGatewayError as e:
+        _LOGGER.error("Re-connection error: %s", e)
+        return False
     try:
         # Test version
         _LOGGER.info("Testing version...")
@@ -115,7 +157,6 @@ async def test_discover_and_connect():
 
 
 async def main():
-    """Main test function."""
     try:
         success = await test_discover_and_connect()
 

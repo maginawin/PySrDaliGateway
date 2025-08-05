@@ -95,6 +95,8 @@ class MessageCryptor:
         message_dict = {"cmd": cmd, "type": "HA"}
         if gw_sn:
             message_dict["gwSn"] = gw_sn
+
+        _LOGGER.debug("Prepared discovery message: %s", message_dict)
         message_json = json.dumps(message_dict)
         return message_json.encode("utf-8")
 
@@ -186,10 +188,6 @@ class MulticastSender:
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF,
                             socket.inet_aton(interface["address"]))
             sock.sendto(message, (self.MULTICAST_ADDR, self.SEND_PORT))
-            _LOGGER.debug(
-                "Sent discovery message via %s (%s)",
-                interface["name"], interface["address"]
-            )
 
 
 class DaliGatewayDiscovery:
