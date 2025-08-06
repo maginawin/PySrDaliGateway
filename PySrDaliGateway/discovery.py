@@ -356,10 +356,19 @@ class DaliGatewayDiscovery:
         encrypted_user = raw_data.get("username", "")
         encrypted_pass = raw_data.get("passwd", "")
 
-        decrypted_user = self.cryptor.decrypt_data(
-            encrypted_user, self.cryptor.SR_KEY)
-        decrypted_pass = self.cryptor.decrypt_data(
-            encrypted_pass, self.cryptor.SR_KEY)
+        try:
+            decrypted_user = self.cryptor.decrypt_data(
+                encrypted_user, self.cryptor.SR_KEY)
+            decrypted_pass = self.cryptor.decrypt_data(
+                encrypted_pass, self.cryptor.SR_KEY)
+        except UnicodeDecodeError as e:
+            _LOGGER.warning(
+                "Failed to decrypt gateway credentials for %s: %s. "
+                "This gateway will be skipped, "
+                "continuing search for other gateways.",
+                gw_sn, e
+            )
+            return None
 
         gateway_name = raw_data.get(
             "name") or f"Dali Gateway {gw_sn}"
