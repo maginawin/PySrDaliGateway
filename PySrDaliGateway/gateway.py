@@ -74,6 +74,7 @@ class DaliGateway:
         self._on_device_status: Optional[Callable[[str, list], None]] = None
         self._on_energy_report: Optional[Callable[[str, float], None]] = None
         self._on_sensor_on_off: Optional[Callable[[str, bool], None]] = None
+        self._on_energy: Optional[Callable[[str, dict], None]] = None
 
         self._window_ms = 100
         self._pending_requests: dict[str, dict[str, dict]] = {}
@@ -189,6 +190,14 @@ class DaliGateway:
     def on_sensor_on_off(self, callback: Callable[[str, bool], None]) -> None:
         self._on_sensor_on_off = callback
 
+    @property
+    def on_energy(self) -> Optional[Callable[[str, dict], None]]:
+        return self._on_energy
+
+    @on_energy.setter
+    def on_energy(self, callback: Callable[[str, dict], None]) -> None:
+        self._on_energy = callback
+
     def _on_connect(
         self, client: paho_mqtt.Client,
         userdata: Any, flags: Any, rc: int, properties: Any = None
@@ -264,6 +273,7 @@ class DaliGateway:
                 "getSceneRes": self._process_get_scene_response,
                 "getGroupRes": self._process_get_group_response,
                 "getVersionRes": self._process_get_version_response,
+                "getEnergyRes": self._process_get_energy_response,
                 "setSensorOnOffRes": self._process_set_sensor_on_off_response,
                 "getSensorOnOffRes": self._process_get_sensor_on_off_response,
             }
@@ -383,6 +393,40 @@ class DaliGateway:
             firmware=payload_json.get("data", {}).get("fwVersion", "")
         )
         self._version_received.set()
+
+    def _process_get_energy_response(self, payload_json: dict) -> None:
+        data_list = payload_json.get("data")
+        if not data_list:
+            _LOGGER.warning(
+                "Gateway %s: Received getEnergyRes with no data: %s",
+                self._gw_sn, payload_json
+            )
+            return
+
+        for data in data_list:
+            dev_id = gen_device_unique_id(
+                data.get("devType"),
+                data.get("channel"),
+                data.get("address"),
+                self._gw_sn
+            )
+
+            if not dev_id:
+                _LOGGER.warning(
+                    "Failed to generate device ID from data: %s",
+                    data
+                )
+                continue
+
+            energy_data = {
+                "yearEnergy": data.get("yearEnergy", {}),
+                "monthEnergy": data.get("monthEnergy", {}),
+                "dayEnergy": data.get("dayEnergy", {}),
+                "hourEnergy": data.get("hourEnergy", [])
+            }
+
+            if self._on_energy:
+                self._on_energy(dev_id, energy_data)
 
     def _process_search_device_response(self, payload_json: dict) -> None:
         for raw_device_data in payload_json["data"]:
@@ -732,6 +776,23 @@ class DaliGateway:
             "devType": dev_type,
             "channel": channel,
             "address": address
+        })
+
+    def command_get_energy(
+        self, dev_type: str, channel: int,
+        address: int, year: int, month: int,
+        day: int
+    ) -> None:
+        self.add_request("getEnergy", dev_type, channel, address, {
+            "devType": dev_type,
+            "channel": channel,
+            "address": address,
+            "condition": {
+                "year": year,
+                "month": month,
+                "day": day,
+                "hour": []
+            }
         })
 
     def command_write_group(
