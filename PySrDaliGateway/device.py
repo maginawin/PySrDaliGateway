@@ -186,3 +186,17 @@ class Device:
             "Requesting sensor %s (%s) enabled state",
             self.dev_id, self.name
         )
+
+    def get_energy(self, year: int, month: int, day: int) -> None:
+        self._gateway.command_get_energy(
+            self._dev_type,
+            self._channel,
+            self._address,
+            year,
+            month,
+            day,
+        )
+        _LOGGER.debug(
+            "Requesting energy data for device %s (%s)",
+            self.dev_id, self.name
+        )
