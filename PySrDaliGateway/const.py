@@ -48,11 +48,11 @@ COLOR_MODE_MAP = {
 }
 
 BUTTON_EVENTS = {
-    1: "single_click",
-    2: "long_press",
-    3: "double_click",
+    1: "press",
+    2: "hold",
+    3: "double_press",
     4: "rotate",
-    5: "long_press_stop",
+    5: "release",
 }
 
 CA_CERT_PATH = resources.files("PySrDaliGateway") / "certs" / "ca.crt"
