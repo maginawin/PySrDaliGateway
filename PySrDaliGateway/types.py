@@ -1,6 +1,6 @@
 """Dali Gateway Types"""
 
-from typing import TypedDict
+from typing import TypedDict, List
 
 
 class DeviceProperty:
@@ -19,7 +19,7 @@ class DeviceType(TypedDict):
     dev_sn: str
     area_name: str
     area_id: str
-    prop: list[DeviceProperty]
+    prop: List[DeviceProperty]
 
 
 class GroupType(TypedDict):
@@ -46,7 +46,7 @@ class DaliGatewayType(TypedDict):
     username: str
     passwd: str
     is_tls: bool
-    channel_total: list[int]
+    channel_total: List[int]
 
 
 class VersionType(TypedDict):
