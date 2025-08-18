@@ -6,7 +6,7 @@ from .gateway import DaliGateway
 from .device import Device
 from .group import Group
 from .scene import Scene
-from .types import SceneType, GroupType, DeviceType, DaliGatewayType
+from .types import SceneType, GroupType, DeviceType, DaliGatewayType, VersionType
 
 
 __all__ = [
@@ -19,4 +19,5 @@ __all__ = [
     "GroupType",
     "SceneType",
     "DaliGatewayType",
+    "VersionType",
 ]

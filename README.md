@@ -9,7 +9,8 @@ Python library for Sunricher DALI Gateway (EDA) integration with Home Assistant.
 - Group and scene management
 - Real-time status updates via MQTT
 - Energy monitoring support
-- Type hints for better development experience
+- **Full Type Support**: Complete type hints for mypy, Pylance, and pyright
+- IDE integration with auto-completion and error checking
 
 ## Installation
 
