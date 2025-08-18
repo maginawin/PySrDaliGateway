@@ -2,7 +2,7 @@
 
 import logging
 import colorsys
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, Dict, List
 
 from .gateway import DaliGateway
 from .types import DeviceType
@@ -61,14 +61,16 @@ class Device:
     def color_mode(self) -> str:
         return COLOR_MODE_MAP.get(self._dev_type, "brightness")
 
-    def _create_property(self, dpid: int, data_type: str, value: Any) -> dict:
+    def _create_property(
+        self, dpid: int, data_type: str, value: Any
+    ) -> Dict[str, Any]:
         return {
             "dpid": dpid,
             "dataType": data_type,
             "value": value
         }
 
-    def _send_properties(self, properties: list[dict]) -> None:
+    def _send_properties(self, properties: List[Dict[str, Any]]) -> None:
         for prop in properties:
             self._gateway.command_write_dev(
                 self._dev_type,

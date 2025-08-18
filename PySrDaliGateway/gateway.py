@@ -10,7 +10,7 @@ from .helper import (
 import paho.mqtt.client as paho_mqtt
 import ssl
 import json
-from typing import Any, Optional, Callable
+from typing import Any, Optional, Callable, Dict, List
 import asyncio
 import time
 import logging
@@ -42,7 +42,6 @@ class DaliGateway:
 
         # MQTT client
         self._mqtt_client = paho_mqtt.Client(
-            callback_api_version=paho_mqtt.CallbackAPIVersion.VERSION2,
             client_id=f"ha_dali_center_{self._gw_sn}",
             protocol=paho_mqtt.MQTTv311
         )
@@ -71,20 +70,22 @@ class DaliGateway:
 
         # Callbacks
         self._on_online_status: Optional[Callable[[str, bool], None]] = None
-        self._on_device_status: Optional[Callable[[str, list], None]] = None
+        self._on_device_status: Optional[Callable[[
+            str, List[Any]], None]] = None
         self._on_energy_report: Optional[Callable[[str, float], None]] = None
         self._on_sensor_on_off: Optional[Callable[[str, bool], None]] = None
-        self._on_energy: Optional[Callable[[str, dict], None]] = None
+        self._on_energy: Optional[Callable[[str, Dict[str, Any]], None]] = None
 
         self._window_ms = 100
-        self._pending_requests: dict[str, dict[str, dict]] = {}
-        self._batch_timer: dict[str, asyncio.TimerHandle] = {}  # cmd -> timer
+        self._pending_requests: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self._batch_timer: Dict[str, asyncio.TimerHandle] = {}  # cmd -> timer
 
     def _get_device_key(self, dev_type: str, channel: int, address: int) -> str:
         return f"{dev_type}_{channel}_{address}"
 
     def add_request(
-        self, cmd: str, dev_type: str, channel: int, address: int, data: dict
+        self, cmd: str, dev_type: str, channel: int,
+        address: int, data: Dict[str, Any]
     ) -> None:
         if cmd not in self._pending_requests:
             self._pending_requests[cmd] = {}
@@ -103,11 +104,11 @@ class DaliGateway:
         if not self._pending_requests.get(cmd):
             return
 
-        batch_data = []
+        batch_data: List[Dict[str, Any]] = []
         for data in self._pending_requests[cmd].values():
             batch_data.append(data)
 
-        command = {
+        command: Dict[str, Any] = {
             "cmd": cmd,
             "msgId": str(int(time.time())),
             "gwSn": self._gw_sn,
@@ -167,11 +168,13 @@ class DaliGateway:
         self._on_online_status = callback
 
     @property
-    def on_device_status(self) -> Optional[Callable[[str, list], None]]:
+    def on_device_status(self) -> Optional[Callable[[str, List[Any]], None]]:
         return self._on_device_status
 
     @on_device_status.setter
-    def on_device_status(self, callback: Callable[[str, list], None]) -> None:
+    def on_device_status(
+        self, callback: Callable[[str, List[Any]], None]
+    ) -> None:
         self._on_device_status = callback
 
     @property
@@ -191,11 +194,13 @@ class DaliGateway:
         self._on_sensor_on_off = callback
 
     @property
-    def on_energy(self) -> Optional[Callable[[str, dict], None]]:
+    def on_energy(self) -> Optional[Callable[[str, Dict[str, Any]], None]]:
         return self._on_energy
 
     @on_energy.setter
-    def on_energy(self, callback: Callable[[str, dict], None]) -> None:
+    def on_energy(
+        self, callback: Callable[[str, Dict[str, Any]], None]
+    ) -> None:
         self._on_energy = callback
 
     def _on_connect(
@@ -261,7 +266,7 @@ class DaliGateway:
                 )
                 return
 
-            command_handlers = {
+            command_handlers: Dict[str, Callable[[Dict[str, Any]], None]] = {
                 "devStatus": self._process_device_status,
                 "readDevRes": self._process_device_status,
                 "writeDevRes": self._process_write_response,
@@ -298,7 +303,7 @@ class DaliGateway:
                 self._gw_sn, str(e)
             )
 
-    def _process_online_status(self, payload: dict) -> None:
+    def _process_online_status(self, payload: Dict[str, Any]) -> None:
         data_list = payload.get("data")
         if not data_list:
             _LOGGER.warning(
@@ -320,7 +325,7 @@ class DaliGateway:
             if self._on_online_status:
                 self._on_online_status(dev_id, available)
 
-    def _process_device_status(self, payload: dict) -> None:
+    def _process_device_status(self, payload: Dict[str, Any]) -> None:
         data = payload.get("data")
         if not data:
             _LOGGER.warning(
@@ -344,7 +349,7 @@ class DaliGateway:
         if self._on_device_status:
             self._on_device_status(dev_id, property_list)
 
-    def _process_write_response(self, payload: dict) -> None:
+    def _process_write_response(self, payload: Dict[str, Any]) -> None:
         msg_id = payload.get("msgId")
         ack = payload.get("ack", False)
 
@@ -354,7 +359,7 @@ class DaliGateway:
             self._gw_sn, msg_id, ack, payload
         )
 
-    def _process_energy_report(self, payload: dict) -> None:
+    def _process_energy_report(self, payload: Dict[str, Any]) -> None:
         data = payload.get("data")
         if not data:
             _LOGGER.warning(
@@ -387,14 +392,18 @@ class DaliGateway:
                         "Error converting energy value: %s", str(e)
                     )
 
-    def _process_get_version_response(self, payload_json: dict) -> None:
+    def _process_get_version_response(
+        self, payload_json: Dict[str, Any]
+    ) -> None:
         self._version_result = VersionType(
             software=payload_json.get("data", {}).get("swVersion", ""),
             firmware=payload_json.get("data", {}).get("fwVersion", "")
         )
         self._version_received.set()
 
-    def _process_get_energy_response(self, payload_json: dict) -> None:
+    def _process_get_energy_response(
+        self, payload_json: Dict[str, Any]
+    ) -> None:
         data_list = payload_json.get("data")
         if not data_list:
             _LOGGER.warning(
@@ -428,7 +437,9 @@ class DaliGateway:
             if self._on_energy:
                 self._on_energy(dev_id, energy_data)
 
-    def _process_search_device_response(self, payload_json: dict) -> None:
+    def _process_search_device_response(
+        self, payload_json: Dict[str, Any]
+    ) -> None:
         for raw_device_data in payload_json["data"]:
 
             device = DeviceType(
@@ -466,7 +477,7 @@ class DaliGateway:
         if search_status == 1 or search_status == 0:
             self._devices_received.set()
 
-    def _process_get_scene_response(self, payload_json: dict) -> None:
+    def _process_get_scene_response(self, payload_json: Dict[str, Any]) -> None:
         for channel_scenes in payload_json["scene"]:
             channel = channel_scenes.get("channel", 0)
 
@@ -492,7 +503,7 @@ class DaliGateway:
 
         self._scenes_received.set()
 
-    def _process_get_group_response(self, payload_json: dict) -> None:
+    def _process_get_group_response(self, payload_json: Dict[str, Any]) -> None:
         for channel_groups in payload_json["group"]:
             channel = channel_groups.get("channel", 0)
 
@@ -518,13 +529,17 @@ class DaliGateway:
 
         self._groups_received.set()
 
-    def _process_set_sensor_on_off_response(self, payload: dict) -> None:
+    def _process_set_sensor_on_off_response(
+        self, payload: Dict[str, Any]
+    ) -> None:
         _LOGGER.debug(
             "Gateway %s: Received setSensorOnOffRes response, payload: %s",
             self._gw_sn, payload
         )
 
-    def _process_get_sensor_on_off_response(self, payload: dict) -> None:
+    def _process_get_sensor_on_off_response(
+        self, payload: Dict[str, Any]
+    ) -> None:
         dev_id = gen_device_unique_id(
             payload.get("devType", ""),
             payload.get("channel", 0),
@@ -553,7 +568,7 @@ class DaliGateway:
         context.load_verify_locations(str(CA_CERT_PATH))
         context.check_hostname = False
         context.verify_mode = ssl.CERT_REQUIRED
-        self._mqtt_client.tls_set_context(context)
+        self._mqtt_client.tls_set_context(context) # pyright: ignore
         _LOGGER.debug(
             "SSL/TLS configured with CA certificate: %s", CA_CERT_PATH
         )
@@ -578,7 +593,7 @@ class DaliGateway:
             self._mqtt_client.loop_start()
             await asyncio.wait_for(self._connection_event.wait(), timeout=10)
 
-            if self._connect_result == 0:
+            if self._connect_result is not None and self._connect_result == 0:
                 _LOGGER.info(
                     "Successfully connected to gateway %s at %s:%s",
                     self._gw_sn, self._gw_ip, self._port)
@@ -603,7 +618,7 @@ class DaliGateway:
                 self._gw_sn
             ) from err
 
-        if self._connect_result in (4, 5):
+        if self._connect_result is not None and self._connect_result in (4, 5):
             _LOGGER.error(
                 "Authentication failed for gateway %s (code %s). "
                 "Please press the gateway button and retry",
@@ -759,7 +774,7 @@ class DaliGateway:
 
     def command_write_dev(
         self, dev_type: str, channel: int,
-        address: int, properties: list
+        address: int, properties: List[Dict[str, Any]]
     ) -> None:
         self.add_request("writeDev", dev_type, channel, address, {
             "devType": dev_type,
@@ -797,9 +812,9 @@ class DaliGateway:
 
     def command_write_group(
         self, group_id: int, channel: int,
-        properties: list
+        properties: List[Dict[str, Any]]
     ) -> None:
-        command = {
+        command: Dict[str, Any] = {
             "cmd": "writeGroup",
             "msgId": str(int(time.time())),
             "gwSn": self._gw_sn,
@@ -813,7 +828,7 @@ class DaliGateway:
     def command_write_scene(
         self, scene_id: int, channel: int
     ) -> None:
-        command = {
+        command: Dict[str, Any] = {
             "cmd": "writeScene",
             "msgId": str(int(time.time())),
             "gwSn": self._gw_sn,
@@ -827,7 +842,7 @@ class DaliGateway:
         self, dev_type: str, channel: int,
         address: int, value: bool
     ) -> None:
-        command = {
+        command: Dict[str, Any] = {
             "cmd": "setSensorOnOff",
             "msgId": str(int(time.time())),
             "gwSn": self._gw_sn,
@@ -843,7 +858,7 @@ class DaliGateway:
         self, dev_type: str, channel: int,
         address: int
     ) -> None:
-        command = {
+        command: Dict[str, Any] = {
             "cmd": "getSensorOnOff",
             "msgId": str(int(time.time())),
             "gwSn": self._gw_sn,

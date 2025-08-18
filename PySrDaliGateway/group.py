@@ -2,7 +2,7 @@
 
 import logging
 import colorsys
-from typing import Tuple, Any, Optional
+from typing import Tuple, Any, Optional, Dict, List
 
 from .types import GroupType
 from .gateway import DaliGateway
@@ -13,6 +13,7 @@ _LOGGER = logging.getLogger(__name__)
 
 class Group:
     """Dali Gateway Group"""
+
     def __init__(self, gateway: DaliGateway, group: GroupType) -> None:
         self._gateway = gateway
         self._id = group["id"]
@@ -42,14 +43,16 @@ class Group:
     def gw_sn(self) -> str:
         return self._gateway.gw_sn
 
-    def _create_property(self, dpid: int, data_type: str, value: Any) -> dict:
+    def _create_property(
+        self, dpid: int, data_type: str, value: Any
+    ) -> Dict[str, Any]:
         return {
             "dpid": dpid,
             "dataType": data_type,
             "value": value
         }
 
-    def _send_properties(self, properties: list[dict]) -> None:
+    def _send_properties(self, properties: List[Dict[str, Any]]) -> None:
         for prop in properties:
             self._gateway.command_write_group(
                 self._id,
@@ -63,7 +66,9 @@ class Group:
         color_temp_kelvin: Optional[int] = None,
         rgbw_color: Optional[Tuple[float, float, float, float]] = None
     ) -> None:
-        properties = [self._create_property(20, "bool", True)]
+        properties: List[Dict[str, Any]] = [
+            self._create_property(20, "bool", True)
+        ]
 
         if brightness:
             properties.append(
@@ -102,6 +107,7 @@ class Group:
         )
 
     def turn_off(self) -> None:
-        properties = [self._create_property(20, "bool", False)]
+        properties: List[Dict[str, Any]] = [
+            self._create_property(20, "bool", False)]
         self._send_properties(properties)
         _LOGGER.debug("Group %s (%s) turned off", self._id, self.name)

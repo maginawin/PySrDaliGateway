@@ -8,7 +8,7 @@ import json
 import uuid
 import logging
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from typing import Any, Optional
+from typing import Any, Optional, Dict, List, Set
 
 from .types import DaliGatewayType
 
@@ -18,8 +18,8 @@ _LOGGER = logging.getLogger(__name__)
 class NetworkManager:
     """Network interface manager"""
 
-    def get_valid_interfaces(self) -> list[dict]:
-        interfaces = []
+    def get_valid_interfaces(self) -> List[Dict[str, Any]]:
+        interfaces: List[Dict[str, Any]] = []
         _LOGGER.debug("Scanning network interfaces for discovery")
         for interface_name, addrs in psutil.net_if_addrs().items():
             for addr in addrs:
@@ -51,7 +51,7 @@ class NetworkManager:
         ip_obj = ipaddress.IPv4Address(ip)
         return not ip_obj.is_loopback and not ip_obj.is_link_local
 
-    def create_interface_info(self, name: str, ip: str) -> dict:
+    def create_interface_info(self, name: str, ip: str) -> Dict[str, Any]:
         return {
             "name": name,
             "address": ip,
@@ -108,7 +108,9 @@ class MulticastSender:
     SEND_PORT = 1900
     LISTEN_PORT = 50569
 
-    def create_listener_socket(self, interfaces: list[dict]) -> socket.socket:
+    def create_listener_socket(
+        self, interfaces: List[Dict[str, Any]]
+    ) -> socket.socket:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
@@ -121,7 +123,7 @@ class MulticastSender:
         return sock
 
     def cleanup_socket(
-        self, sock: socket.socket, interfaces: list[dict]
+        self, sock: socket.socket, interfaces: List[Dict[str, Any]]
     ) -> None:
         for interface in interfaces:
             try:
@@ -135,7 +137,7 @@ class MulticastSender:
         sock.close()
 
     async def send_multicast_message(
-        self, interfaces: list[dict], message: bytes
+        self, interfaces: List[Dict[str, Any]], message: bytes
     ) -> None:
         tasks = [asyncio.create_task(self._send_on_interface(
             interface, message)) for interface in interfaces]
@@ -158,7 +160,7 @@ class MulticastSender:
                 _LOGGER.debug("Port %d unavailable, trying next port", port)
 
     def _join_multicast_groups(
-        self, sock: socket.socket, interfaces: list[dict]
+        self, sock: socket.socket, interfaces: List[Dict[str, Any]]
     ) -> None:
         _LOGGER.debug(
             "Joining multicast groups on %d interfaces",
@@ -181,7 +183,9 @@ class MulticastSender:
                 interface["name"], interface["address"]
             )
 
-    async def _send_on_interface(self, interface: dict, message: bytes) -> None:
+    async def _send_on_interface(
+        self, interface: Dict[str, Any], message: bytes
+    ) -> None:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             sock.bind((interface["address"], 0))
@@ -203,7 +207,7 @@ class DaliGatewayDiscovery:
 
     async def discover_gateways(
         self, gw_sn: Optional[str] = None
-    ) -> list[DaliGatewayType]:
+    ) -> List[DaliGatewayType]:
         _LOGGER.info(
             "Starting DALI gateway discovery%s",
             f" for specific gateway: {gw_sn}" if gw_sn else ""
@@ -236,12 +240,13 @@ class DaliGatewayDiscovery:
             self.sender.cleanup_socket(listen_sock, interfaces)
 
     async def _run_discovery(
-        self, sock: socket.socket, interfaces: list[dict], message: bytes
-    ) -> list[DaliGatewayType]:
+        self, sock: socket.socket,
+        interfaces: List[Dict[str, Any]], message: bytes
+    ) -> List[DaliGatewayType]:
         start_time = asyncio.get_event_loop().time()
         first_gateway_found = asyncio.Event()
-        unique_gateways: list[DaliGatewayType] = []
-        seen_sns: set[str] = set()
+        unique_gateways: List[DaliGatewayType] = []
+        seen_sns: Set[str] = set()
 
         # Sender task
         sender_task = asyncio.create_task(self._sender_loop(
@@ -264,7 +269,7 @@ class DaliGatewayDiscovery:
         return unique_gateways
 
     async def _sender_loop(
-        self, interfaces: list[dict], message: bytes,
+        self, interfaces: List[Dict[str, Any]], message: bytes,
         first_gateway_found: asyncio.Event, start_time: float
     ) -> None:
         send_count = 0
@@ -299,7 +304,8 @@ class DaliGatewayDiscovery:
 
     async def _receiver_loop(
         self, sock: socket.socket, first_gateway_found: asyncio.Event,
-        start_time: float, unique_gateways: list[DaliGatewayType], seen_sns: set
+        start_time: float, unique_gateways: List[DaliGatewayType],
+        seen_sns: Set[str]
     ) -> None:
         _LOGGER.debug("Starting receiver loop, listening on socket")
 
@@ -308,6 +314,8 @@ class DaliGatewayDiscovery:
                     start_time >= self.DISCOVERY_TIMEOUT:
                 _LOGGER.debug("Receiver loop timeout reached")
                 break
+
+            addr = None
             try:
                 await asyncio.sleep(0.1)
                 data, addr = sock.recvfrom(1024)
@@ -340,12 +348,13 @@ class DaliGatewayDiscovery:
                     )
 
             except json.JSONDecodeError as exc:
-                _LOGGER.warning("Invalid JSON response from %s: %s", addr, exc)
+                _LOGGER.warning(
+                    "Invalid JSON response from %s: %s", addr or "unknown", exc)
                 continue
             except (BlockingIOError, asyncio.CancelledError):
                 continue
 
-    def _process_gateway_data(self, raw_data: Any) -> DaliGatewayType | None:
+    def _process_gateway_data(self, raw_data: Any) -> Optional[DaliGatewayType]:
         gw_sn = raw_data.get("gwSn")
         if not gw_sn:
             _LOGGER.warning("Gateway data missing required 'gwSn' field")
