@@ -8,6 +8,7 @@ from .helper import (
     gen_device_name
 )
 import paho.mqtt.client as paho_mqtt
+from paho.mqtt.enums import CallbackAPIVersion
 import ssl
 import json
 from typing import Any, Optional, Callable, Dict, List
@@ -42,6 +43,7 @@ class DaliGateway:
 
         # MQTT client
         self._mqtt_client = paho_mqtt.Client(
+            CallbackAPIVersion.VERSION2,
             client_id=f"ha_dali_center_{self._gw_sn}",
             protocol=paho_mqtt.MQTTv311
         )
@@ -568,7 +570,7 @@ class DaliGateway:
         context.load_verify_locations(str(CA_CERT_PATH))
         context.check_hostname = False
         context.verify_mode = ssl.CERT_REQUIRED
-        self._mqtt_client.tls_set_context(context) # pyright: ignore
+        self._mqtt_client.tls_set_context(context)  # pyright: ignore
         _LOGGER.debug(
             "SSL/TLS configured with CA certificate: %s", CA_CERT_PATH
         )
