@@ -220,7 +220,7 @@ class DaliGatewayDiscovery:
         )
 
         if not interfaces:
-            _LOGGER.warning("No valid network interfaces found for discovery")
+            _LOGGER.error("No valid network interfaces found for discovery - check network connection")
             return []
 
         message = self.cryptor.prepare_discovery_message(gw_sn)
@@ -349,10 +349,14 @@ class DaliGatewayDiscovery:
 
             except json.JSONDecodeError as exc:
                 _LOGGER.warning(
-                    "Invalid JSON response from %s: %s", addr or "unknown", exc)
+                    "Invalid JSON response from %s: %s. Raw data: %s", 
+                    addr or "unknown", exc, data[:100] if data else "<empty>")
                 continue
             except (BlockingIOError, asyncio.CancelledError):
                 continue
+            except OSError as exc:
+                _LOGGER.error("Socket error in receiver loop - this may prevent discovery: %s", exc)
+                break
 
     def _process_gateway_data(self, raw_data: Any) -> Optional[DaliGatewayType]:
         gw_sn = raw_data.get("gwSn")
@@ -371,11 +375,12 @@ class DaliGatewayDiscovery:
             decrypted_pass = self.cryptor.decrypt_data(
                 encrypted_pass, self.cryptor.SR_KEY)
         except UnicodeDecodeError as e:
-            _LOGGER.warning(
+            _LOGGER.error(
                 "Failed to decrypt gateway credentials for %s: %s. "
-                "This gateway will be skipped, "
-                "continuing search for other gateways.",
-                gw_sn, e
+                "Raw encrypted data - user: '%s', pass: '%s'. "
+                "This gateway will be skipped.",
+                gw_sn, e, encrypted_user[:20] + "..." if len(encrypted_user) > 20 else encrypted_user,
+                encrypted_pass[:20] + "..." if len(encrypted_pass) > 20 else encrypted_pass
             )
             return None
 
