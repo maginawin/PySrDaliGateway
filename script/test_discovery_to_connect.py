@@ -83,8 +83,7 @@ class DaliGatewayTester:
         _LOGGER.info("=== Testing Gateway Connection ===")
         selected_gateway = self.gateways[gateway_index]
         self.gateway_config = {**selected_gateway}
-        _LOGGER.info("Connecting to gateway '%s'...",
-                     self.gateway_config["name"])
+        _LOGGER.info("Connecting to gateway '%s'...", self.gateway_config["name"])
         _LOGGER.info("Gateway config: %s", self.gateway_config)
 
         self.gateway = DaliGateway(self.gateway_config)
@@ -220,8 +219,7 @@ class DaliGatewayTester:
             _LOGGER.error("ReadDev test failed: %s", e)
             return False
         else:
-            _LOGGER.info("✓ ReadDev commands sent for %d devices",
-                         len(devices_to_test))
+            _LOGGER.info("✓ ReadDev commands sent for %d devices", len(devices_to_test))
             return True
 
     async def test_get_dev_param(self, device_limit: int = 3) -> bool:
@@ -259,8 +257,7 @@ class DaliGatewayTester:
             return False
         else:
             _LOGGER.info(
-                "✓ GetDevParam commands sent for %d devices", len(
-                    devices_to_test)
+                "✓ GetDevParam commands sent for %d devices", len(devices_to_test)
             )
             return True
 
@@ -299,8 +296,7 @@ class DaliGatewayTester:
     def _check_connection(self) -> bool:
         """Check if gateway is connected."""
         if not self.gateway or not self.is_connected:
-            _LOGGER.error(
-                "Not connected to gateway! Run connection test first.")
+            _LOGGER.error("Not connected to gateway! Run connection test first.")
             return False
         return True
 
@@ -331,8 +327,7 @@ class DaliGatewayTester:
             try:
                 result = await test_func()
             except (DaliGatewayError, RuntimeError, asyncio.TimeoutError) as e:
-                _LOGGER.error(
-                    "❌ %s test failed with exception: %s", test_name, e)
+                _LOGGER.error("❌ %s test failed with exception: %s", test_name, e)
                 return False
             else:
                 if not result:

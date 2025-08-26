@@ -135,7 +135,7 @@ class MulticastSender:
         ports_to_try = [
             self.LISTEN_PORT,
             *range(self.LISTEN_PORT + 1, self.LISTEN_PORT + 10),
-            0
+            0,
         ]
 
         def try_bind_port(port: int) -> bool:

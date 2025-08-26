@@ -79,8 +79,7 @@ class DaliGateway:
 
         # Callbacks
         self._on_online_status: Optional[Callable[[str, bool], None]] = None
-        self._on_device_status: Optional[Callable[[
-            str, List[Any]], None]] = None
+        self._on_device_status: Optional[Callable[[str, List[Any]], None]] = None
         self._on_energy_report: Optional[Callable[[str, float], None]] = None
         self._on_sensor_on_off: Optional[Callable[[str, bool], None]] = None
         self._on_energy: Optional[Callable[[str, Dict[str, Any]], None]] = None
@@ -110,8 +109,7 @@ class DaliGateway:
         if not self._pending_requests.get(cmd):
             return
 
-        batch_data: List[Dict[str, Any]] = list(
-            self._pending_requests[cmd].values())
+        batch_data: List[Dict[str, Any]] = list(self._pending_requests[cmd].values())
 
         command: Dict[str, Any] = {
             "cmd": cmd,
@@ -122,8 +120,7 @@ class DaliGateway:
 
         self._mqtt_client.publish(self._pub_topic, json.dumps(command))
 
-        _LOGGER.debug("Gateway %s: Sent batch readDev %s",
-                      self._gw_sn, command)
+        _LOGGER.debug("Gateway %s: Sent batch readDev %s", self._gw_sn, command)
 
         self._pending_requests[cmd].clear()
         self._batch_timer.pop(cmd)
@@ -245,8 +242,7 @@ class DaliGateway:
                 reason_code,
             )
         else:
-            _LOGGER.debug(
-                "Gateway %s: MQTT disconnection completed", self._gw_sn)
+            _LOGGER.debug("Gateway %s: MQTT disconnection completed", self._gw_sn)
 
     def _on_message(
         self, client: paho_mqtt.Client, userdata: Any, msg: paho_mqtt.MQTTMessage
@@ -306,8 +302,7 @@ class DaliGateway:
             )
         except (ValueError, KeyError, TypeError) as e:
             _LOGGER.error(
-                "Gateway %s: Error processing MQTT message: %s", self._gw_sn, str(
-                    e)
+                "Gateway %s: Error processing MQTT message: %s", self._gw_sn, str(e)
             )
 
     def _process_online_status(self, payload: Dict[str, Any]) -> None:
@@ -342,8 +337,7 @@ class DaliGateway:
             return
 
         dev_id = gen_device_unique_id(
-            data.get("devType"), data.get(
-                "channel"), data.get("address"), self._gw_sn
+            data.get("devType"), data.get("channel"), data.get("address"), self._gw_sn
         )
 
         if not dev_id:
@@ -378,8 +372,7 @@ class DaliGateway:
             return
 
         dev_id = gen_device_unique_id(
-            data.get("devType"), data.get(
-                "channel"), data.get("address"), self._gw_sn
+            data.get("devType"), data.get("channel"), data.get("address"), self._gw_sn
         )
 
         if not dev_id:
@@ -423,8 +416,7 @@ class DaliGateway:
             )
 
             if not dev_id:
-                _LOGGER.warning(
-                    "Failed to generate device ID from data: %s", data)
+                _LOGGER.warning("Failed to generate device ID from data: %s", data)
                 continue
 
             energy_data = {
@@ -566,10 +558,8 @@ class DaliGateway:
         context.load_verify_locations(str(CA_CERT_PATH))
         context.check_hostname = False
         context.verify_mode = ssl.CERT_REQUIRED
-        self._mqtt_client.tls_set_context(
-            context)  # type: ignore[attr-defined]
-        _LOGGER.debug(
-            "SSL/TLS configured with CA certificate: %s", CA_CERT_PATH)
+        self._mqtt_client.tls_set_context(context)
+        _LOGGER.debug("SSL/TLS configured with CA certificate: %s", CA_CERT_PATH)
 
     def get_credentials(self) -> tuple[str, str]:
         return self._username, self._passwd
@@ -653,8 +643,7 @@ class DaliGateway:
             self._mqtt_client.loop_stop()
             self._mqtt_client.disconnect()
             self._connection_event.clear()
-            _LOGGER.info(
-                "Successfully disconnected from gateway %s", self._gw_sn)
+            _LOGGER.info("Successfully disconnected from gateway %s", self._gw_sn)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             _LOGGER.error(
                 "Error during disconnect from gateway %s: %s", self._gw_sn, exc
@@ -698,8 +687,7 @@ class DaliGateway:
             "gwSn": self._gw_sn,
         }
 
-        _LOGGER.debug(
-            "Gateway %s: Sending device discovery command", self._gw_sn)
+        _LOGGER.debug("Gateway %s: Sending device discovery command", self._gw_sn)
         self._mqtt_client.publish(self._pub_topic, json.dumps(search_payload))
 
         try:
@@ -725,8 +713,7 @@ class DaliGateway:
             "gwSn": self._gw_sn,
         }
 
-        _LOGGER.debug(
-            "Gateway %s: Sending group discovery command", self._gw_sn)
+        _LOGGER.debug("Gateway %s: Sending group discovery command", self._gw_sn)
         self._mqtt_client.publish(self._pub_topic, json.dumps(search_payload))
 
         try:
@@ -752,8 +739,7 @@ class DaliGateway:
             "gwSn": self._gw_sn,
         }
 
-        _LOGGER.debug(
-            "Gateway %s: Sending scene discovery command", self._gw_sn)
+        _LOGGER.debug("Gateway %s: Sending scene discovery command", self._gw_sn)
         self._mqtt_client.publish(self._pub_topic, json.dumps(search_payload))
 
         try:

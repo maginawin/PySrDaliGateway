@@ -8,8 +8,7 @@ import time
 import paho.mqtt.client as mqtt
 
 logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -41,7 +40,7 @@ def main():
     client = mqtt.Client(
         mqtt.CallbackAPIVersion.VERSION2,
         client_id="test_client",
-        protocol=mqtt.MQTTv311
+        protocol=mqtt.MQTTv311,
     )
 
     # Set up SSL context
@@ -73,6 +72,7 @@ def main():
 
     except (ConnectionError, ssl.SSLError, OSError) as e:
         _LOGGER.error("Error: %s", e)
+
 
 if __name__ == "__main__":
     main()
