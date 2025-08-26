@@ -138,10 +138,10 @@ class DaliGatewayTester:
             "username": self.gateway_config.get("username", ""),
             "passwd": self.gateway_config.get("passwd", ""),
         }
-        # Log config without sensitive data
-        sensitive_keys = ["username", "pass" + "wd"]  # Avoid security scanner detection
-        safe_config = {k: v for k, v in new_config.items() if k not in sensitive_keys}
-        _LOGGER.info("Updated gateway config (credentials hidden): %s", safe_config)
+        _LOGGER.info("Updated gateway config for %s at %s:%s", 
+                     new_config.get("name", "Unknown"), 
+                     new_config.get("gw_ip"), 
+                     new_config.get("port"))
 
         # Reconnect
         self.gateway_config = new_config
