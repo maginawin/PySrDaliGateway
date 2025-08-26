@@ -138,10 +138,6 @@ class DaliGatewayTester:
             "username": self.gateway_config.get("username", ""),
             "passwd": self.gateway_config.get("passwd", ""),
         }
-        _LOGGER.info("Updated gateway config for %s at %s:%s", 
-                     new_config.get("name", "Unknown"), 
-                     new_config.get("gw_ip"), 
-                     new_config.get("port"))
 
         # Reconnect
         self.gateway_config = new_config
