@@ -1,23 +1,31 @@
 """Dali Gateway"""
 
-from .types import SceneType, GroupType, DeviceType, DaliGatewayType, VersionType
+import asyncio
+import json
+import logging
+import ssl
+import time
+from typing import Any, Callable, Dict, List, Optional
+
+import paho.mqtt.client as paho_mqtt
+from paho.mqtt.enums import CallbackAPIVersion
+
+from .const import CA_CERT_PATH
+from .exceptions import DaliGatewayError
 from .helper import (
+    gen_device_name,
     gen_device_unique_id,
     gen_group_unique_id,
     gen_scene_unique_id,
-    gen_device_name
 )
-import paho.mqtt.client as paho_mqtt
-from paho.mqtt.enums import CallbackAPIVersion
-import ssl
-import json
-from typing import Any, Optional, Callable, Dict, List
-import asyncio
-import time
-import logging
-from .const import CA_CERT_PATH
-from .exceptions import DaliGatewayError
-
+from .types import (
+    DaliGatewayType,
+    DeviceParamType,
+    DeviceType,
+    GroupType,
+    SceneType,
+    VersionType,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,7 +34,6 @@ class DaliGateway:
     """Dali Gateway"""
 
     def __init__(self, gateway: DaliGatewayType) -> None:
-
         # Gateway information
         self._gw_sn = gateway["gw_sn"]
         self._gw_ip = gateway["gw_ip"]
@@ -45,7 +52,7 @@ class DaliGateway:
         self._mqtt_client = paho_mqtt.Client(
             CallbackAPIVersion.VERSION2,
             client_id=f"ha_dali_center_{self._gw_sn}",
-            protocol=paho_mqtt.MQTTv311
+            protocol=paho_mqtt.MQTTv311,
         )
 
         self._mqtt_client.enable_logger()
@@ -72,8 +79,7 @@ class DaliGateway:
 
         # Callbacks
         self._on_online_status: Optional[Callable[[str, bool], None]] = None
-        self._on_device_status: Optional[Callable[[
-            str, List[Any]], None]] = None
+        self._on_device_status: Optional[Callable[[str, List[Any]], None]] = None
         self._on_energy_report: Optional[Callable[[str, float], None]] = None
         self._on_sensor_on_off: Optional[Callable[[str, bool], None]] = None
         self._on_energy: Optional[Callable[[str, Dict[str, Any]], None]] = None
@@ -86,8 +92,7 @@ class DaliGateway:
         return f"{dev_type}_{channel}_{address}"
 
     def add_request(
-        self, cmd: str, dev_type: str, channel: int,
-        address: int, data: Dict[str, Any]
+        self, cmd: str, dev_type: str, channel: int, address: int, data: Dict[str, Any]
     ) -> None:
         if cmd not in self._pending_requests:
             self._pending_requests[cmd] = {}
@@ -97,35 +102,25 @@ class DaliGateway:
 
         if self._batch_timer.get(cmd) is None:
             self._batch_timer[cmd] = asyncio.get_event_loop().call_later(
-                self._window_ms / 1000.0,
-                self._flush_batch,
-                cmd
+                self._window_ms / 1000.0, self._flush_batch, cmd
             )
 
     def _flush_batch(self, cmd: str) -> None:
         if not self._pending_requests.get(cmd):
             return
 
-        batch_data: List[Dict[str, Any]] = []
-        for data in self._pending_requests[cmd].values():
-            batch_data.append(data)
+        batch_data: List[Dict[str, Any]] = list(self._pending_requests[cmd].values())
 
         command: Dict[str, Any] = {
             "cmd": cmd,
             "msgId": str(int(time.time())),
             "gwSn": self._gw_sn,
-            "data": batch_data
+            "data": batch_data,
         }
 
-        self._mqtt_client.publish(
-            self._pub_topic,
-            json.dumps(command)
-        )
+        self._mqtt_client.publish(self._pub_topic, json.dumps(command))
 
-        _LOGGER.debug(
-            "Gateway %s: Sent batch readDev %s",
-            self._gw_sn, command
-        )
+        _LOGGER.debug("Gateway %s: Sent batch readDev %s", self._gw_sn, command)
 
         self._pending_requests[cmd].clear()
         self._batch_timer.pop(cmd)
@@ -140,7 +135,7 @@ class DaliGateway:
             "name": self._name,
             "username": self._username,
             "passwd": self._passwd,
-            "channel_total": self._channel_total
+            "channel_total": self._channel_total,
         }
 
     def __repr__(self) -> str:
@@ -174,9 +169,7 @@ class DaliGateway:
         return self._on_device_status
 
     @on_device_status.setter
-    def on_device_status(
-        self, callback: Callable[[str, List[Any]], None]
-    ) -> None:
+    def on_device_status(self, callback: Callable[[str, List[Any]], None]) -> None:
         self._on_device_status = callback
 
     @property
@@ -200,14 +193,16 @@ class DaliGateway:
         return self._on_energy
 
     @on_energy.setter
-    def on_energy(
-        self, callback: Callable[[str, Dict[str, Any]], None]
-    ) -> None:
+    def on_energy(self, callback: Callable[[str, Dict[str, Any]], None]) -> None:
         self._on_energy = callback
 
     def _on_connect(
-        self, client: paho_mqtt.Client,
-        userdata: Any, flags: Any, rc: int, properties: Any = None
+        self,
+        client: paho_mqtt.Client,
+        userdata: Any,
+        flags: Any,
+        rc: int,
+        properties: Any = None,
     ) -> None:
         # pylint: disable=unused-argument
         self._connect_result = rc
@@ -216,55 +211,56 @@ class DaliGateway:
         if rc == 0:
             _LOGGER.debug(
                 "Gateway %s: MQTT connection established to %s:%s",
-                self._gw_sn, self._gw_ip, self._port
+                self._gw_sn,
+                self._gw_ip,
+                self._port,
             )
             self._mqtt_client.subscribe(self._sub_topic)
             _LOGGER.debug(
-                "Gateway %s: Subscribed to MQTT topic %s",
-                self._gw_sn, self._sub_topic
+                "Gateway %s: Subscribed to MQTT topic %s", self._gw_sn, self._sub_topic
             )
         else:
             _LOGGER.error(
-                "Gateway %s: MQTT connection failed with code %s",
-                self._gw_sn, rc
+                "Gateway %s: MQTT connection failed with code %s", self._gw_sn, rc
             )
 
     def _on_disconnect(
-        self, client: paho_mqtt.Client,
-        userdata: Any, disconnect_flags: Any,
-        reason_code: Any, properties: Any = None
+        self,
+        client: paho_mqtt.Client,
+        userdata: Any,
+        disconnect_flags: Any,
+        reason_code: Any,
+        properties: Any = None,
     ) -> None:
         # pylint: disable=unused-argument
         if reason_code != 0:
             _LOGGER.warning(
-                "Gateway %s: Unexpected MQTT disconnection (%s:%s) - "
-                "Reason code: %s",
-                self._gw_sn, self._gw_ip, self._port,
-                reason_code
+                "Gateway %s: Unexpected MQTT disconnection (%s:%s) - Reason code: %s",
+                self._gw_sn,
+                self._gw_ip,
+                self._port,
+                reason_code,
             )
         else:
-            _LOGGER.debug(
-                "Gateway %s: MQTT disconnection completed",
-                self._gw_sn
-            )
+            _LOGGER.debug("Gateway %s: MQTT disconnection completed", self._gw_sn)
 
     def _on_message(
-        self, client: paho_mqtt.Client,
-        userdata: Any, msg: paho_mqtt.MQTTMessage
+        self, client: paho_mqtt.Client, userdata: Any, msg: paho_mqtt.MQTTMessage
     ) -> None:
         # pylint: disable=unused-argument
         try:
             payload_json = json.loads(msg.payload.decode())
             _LOGGER.debug(
                 "Gateway %s: Received MQTT message on topic %s: %s",
-                self._gw_sn, msg.topic, payload_json
+                self._gw_sn,
+                msg.topic,
+                payload_json,
             )
 
             cmd = payload_json.get("cmd")
             if not cmd:
                 _LOGGER.warning(
-                    "Gateway %s: Received MQTT message without cmd field",
-                    self._gw_sn
+                    "Gateway %s: Received MQTT message without cmd field", self._gw_sn
                 )
                 return
 
@@ -283,6 +279,8 @@ class DaliGateway:
                 "getEnergyRes": self._process_get_energy_response,
                 "setSensorOnOffRes": self._process_set_sensor_on_off_response,
                 "getSensorOnOffRes": self._process_get_sensor_on_off_response,
+                "setDevParamRes": self._process_write_response,
+                "getDevParamRes": self._process_get_dev_param_response,
             }
 
             handler = command_handlers.get(cmd)
@@ -291,18 +289,20 @@ class DaliGateway:
             else:
                 _LOGGER.debug(
                     "Gateway %s: Unhandled MQTT command '%s', payload: %s",
-                    self._gw_sn, cmd, payload_json
+                    self._gw_sn,
+                    cmd,
+                    payload_json,
                 )
 
         except json.JSONDecodeError:
             _LOGGER.error(
                 "Gateway %s: Failed to decode MQTT message payload: %s",
-                self._gw_sn, msg.payload
+                self._gw_sn,
+                msg.payload,
             )
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except (ValueError, KeyError, TypeError) as e:
             _LOGGER.error(
-                "Gateway %s: Error processing MQTT message: %s",
-                self._gw_sn, str(e)
+                "Gateway %s: Error processing MQTT message: %s", self._gw_sn, str(e)
             )
 
     def _process_online_status(self, payload: Dict[str, Any]) -> None:
@@ -310,7 +310,8 @@ class DaliGateway:
         if not data_list:
             _LOGGER.warning(
                 "Gateway %s: Received onlineStatus with no data: %s",
-                self._gw_sn, payload
+                self._gw_sn,
+                payload,
             )
             return
 
@@ -319,7 +320,7 @@ class DaliGateway:
                 data.get("devType"),
                 data.get("channel"),
                 data.get("address"),
-                self._gw_sn
+                self._gw_sn,
             )
 
             available: bool = data.get("status", False)
@@ -331,16 +332,12 @@ class DaliGateway:
         data = payload.get("data")
         if not data:
             _LOGGER.warning(
-                "Gateway %s: Received devStatus with no data: %s",
-                self._gw_sn, payload
+                "Gateway %s: Received devStatus with no data: %s", self._gw_sn, payload
             )
             return
 
         dev_id = gen_device_unique_id(
-            data.get("devType"),
-            data.get("channel"),
-            data.get("address"),
-            self._gw_sn
+            data.get("devType"), data.get("channel"), data.get("address"), self._gw_sn
         )
 
         if not dev_id:
@@ -358,7 +355,10 @@ class DaliGateway:
         _LOGGER.debug(
             "Gateway %s: Received write device response, "
             "msgId: %s, ack: %s, payload: %s",
-            self._gw_sn, msg_id, ack, payload
+            self._gw_sn,
+            msg_id,
+            ack,
+            payload,
         )
 
     def _process_energy_report(self, payload: Dict[str, Any]) -> None:
@@ -366,15 +366,13 @@ class DaliGateway:
         if not data:
             _LOGGER.warning(
                 "Gateway %s: Received reportEnergy with no data: %s",
-                self._gw_sn, payload
+                self._gw_sn,
+                payload,
             )
             return
 
         dev_id = gen_device_unique_id(
-            data.get("devType"),
-            data.get("channel"),
-            data.get("address"),
-            self._gw_sn
+            data.get("devType"), data.get("channel"), data.get("address"), self._gw_sn
         )
 
         if not dev_id:
@@ -390,27 +388,22 @@ class DaliGateway:
                     if self._on_energy_report:
                         self._on_energy_report(dev_id, energy_value)
                 except (ValueError, TypeError) as e:
-                    _LOGGER.error(
-                        "Error converting energy value: %s", str(e)
-                    )
+                    _LOGGER.error("Error converting energy value: %s", str(e))
 
-    def _process_get_version_response(
-        self, payload_json: Dict[str, Any]
-    ) -> None:
+    def _process_get_version_response(self, payload_json: Dict[str, Any]) -> None:
         self._version_result = VersionType(
             software=payload_json.get("data", {}).get("swVersion", ""),
-            firmware=payload_json.get("data", {}).get("fwVersion", "")
+            firmware=payload_json.get("data", {}).get("fwVersion", ""),
         )
         self._version_received.set()
 
-    def _process_get_energy_response(
-        self, payload_json: Dict[str, Any]
-    ) -> None:
+    def _process_get_energy_response(self, payload_json: Dict[str, Any]) -> None:
         data_list = payload_json.get("data")
         if not data_list:
             _LOGGER.warning(
                 "Gateway %s: Received getEnergyRes with no data: %s",
-                self._gw_sn, payload_json
+                self._gw_sn,
+                payload_json,
             )
             return
 
@@ -419,64 +412,60 @@ class DaliGateway:
                 data.get("devType"),
                 data.get("channel"),
                 data.get("address"),
-                self._gw_sn
+                self._gw_sn,
             )
 
             if not dev_id:
-                _LOGGER.warning(
-                    "Failed to generate device ID from data: %s",
-                    data
-                )
+                _LOGGER.warning("Failed to generate device ID from data: %s", data)
                 continue
 
             energy_data = {
                 "yearEnergy": data.get("yearEnergy", {}),
                 "monthEnergy": data.get("monthEnergy", {}),
                 "dayEnergy": data.get("dayEnergy", {}),
-                "hourEnergy": data.get("hourEnergy", [])
+                "hourEnergy": data.get("hourEnergy", []),
             }
 
             if self._on_energy:
                 self._on_energy(dev_id, energy_data)
 
-    def _process_search_device_response(
-        self, payload_json: Dict[str, Any]
-    ) -> None:
+    def _process_search_device_response(self, payload_json: Dict[str, Any]) -> None:
         for raw_device_data in payload_json["data"]:
-
             device = DeviceType(
                 dev_type=raw_device_data.get("devType", ""),
                 channel=raw_device_data.get("channel", 0),
                 address=raw_device_data.get("address", 0),
                 status=raw_device_data.get("status", ""),
-                name=raw_device_data.get("name") or gen_device_name(
+                name=raw_device_data.get("name")
+                or gen_device_name(
                     raw_device_data.get("devType", ""),
                     raw_device_data.get("channel", 0),
-                    raw_device_data.get("address", 0)
+                    raw_device_data.get("address", 0),
                 ),
                 dev_sn=raw_device_data.get("devSn", ""),
                 area_name=raw_device_data.get("areaName", ""),
                 area_id=raw_device_data.get("areaId", ""),
                 prop=[],
-                id=raw_device_data.get("devId") or gen_device_unique_id(
+                id=raw_device_data.get("devId")
+                or gen_device_unique_id(
                     raw_device_data.get("devType", ""),
                     raw_device_data.get("channel", 0),
                     raw_device_data.get("address", 0),
-                    self._gw_sn
+                    self._gw_sn,
                 ),
                 unique_id=gen_device_unique_id(
                     raw_device_data.get("devType", ""),
                     raw_device_data.get("channel", 0),
                     raw_device_data.get("address", 0),
-                    self._gw_sn
-                )
+                    self._gw_sn,
+                ),
             )
 
             if device not in self._devices_result:
                 self._devices_result.append(device)
 
         search_status = payload_json["searchStatus"]
-        if search_status == 1 or search_status == 0:
+        if search_status in {0, 1}:
             self._devices_received.set()
 
     def _process_get_scene_response(self, payload_json: Dict[str, Any]) -> None:
@@ -494,10 +483,8 @@ class DaliGateway:
                     name=scene_data.get("name", ""),
                     area_id=scene_data.get("areaId", ""),
                     unique_id=gen_scene_unique_id(
-                        scene_data.get("sceneId", 0),
-                        channel,
-                        self._gw_sn
-                    )
+                        scene_data.get("sceneId", 0), channel, self._gw_sn
+                    ),
                 )
 
                 if scene not in self._scenes_result:
@@ -520,10 +507,8 @@ class DaliGateway:
                     channel=channel,
                     area_id=group_data.get("areaId", ""),
                     unique_id=gen_group_unique_id(
-                        group_data.get("groupId", 0),
-                        channel,
-                        self._gw_sn
-                    )
+                        group_data.get("groupId", 0), channel, self._gw_sn
+                    ),
                 )
 
                 if group not in self._groups_result:
@@ -531,28 +516,32 @@ class DaliGateway:
 
         self._groups_received.set()
 
-    def _process_set_sensor_on_off_response(
-        self, payload: Dict[str, Any]
-    ) -> None:
+    def _process_set_sensor_on_off_response(self, payload: Dict[str, Any]) -> None:
         _LOGGER.debug(
             "Gateway %s: Received setSensorOnOffRes response, payload: %s",
-            self._gw_sn, payload
+            self._gw_sn,
+            payload,
         )
 
-    def _process_get_sensor_on_off_response(
-        self, payload: Dict[str, Any]
-    ) -> None:
+    def _process_get_sensor_on_off_response(self, payload: Dict[str, Any]) -> None:
         dev_id = gen_device_unique_id(
             payload.get("devType", ""),
             payload.get("channel", 0),
             payload.get("address", 0),
-            self._gw_sn
+            self._gw_sn,
         )
 
         value = payload.get("value", False)
 
         if self._on_sensor_on_off:
             self._on_sensor_on_off(dev_id, value)
+
+    def _process_get_dev_param_response(self, payload: Dict[str, Any]) -> None:
+        _LOGGER.debug(
+            "Gateway %s: Received getDevParamRes response, payload: %s",
+            self._gw_sn,
+            payload,
+        )
 
     async def _setup_ssl(self) -> None:
         try:
@@ -561,8 +550,7 @@ class DaliGateway:
         except Exception as e:
             _LOGGER.error("Failed to configure SSL/TLS: %s", str(e))
             raise DaliGatewayError(
-                f"SSL/TLS configuration failed: {e}",
-                self._gw_sn
+                f"SSL/TLS configuration failed: {e}", self._gw_sn
             ) from e
 
     def _setup_ssl_sync(self) -> None:
@@ -570,10 +558,8 @@ class DaliGateway:
         context.load_verify_locations(str(CA_CERT_PATH))
         context.check_hostname = False
         context.verify_mode = ssl.CERT_REQUIRED
-        self._mqtt_client.tls_set_context(context)  # pyright: ignore
-        _LOGGER.debug(
-            "SSL/TLS configured with CA certificate: %s", CA_CERT_PATH
-        )
+        self._mqtt_client.tls_set_context(context)
+        _LOGGER.debug("SSL/TLS configured with CA certificate: %s", CA_CERT_PATH)
 
     def get_credentials(self) -> tuple[str, str]:
         return self._username, self._passwd
@@ -581,77 +567,86 @@ class DaliGateway:
     async def connect(self) -> None:
         self._connection_event.clear()
         self._connect_result = None
-        self._mqtt_client.username_pw_set(
-            self._username, self._passwd
-        )
+        self._mqtt_client.username_pw_set(self._username, self._passwd)
 
         if self._is_tls:
             await self._setup_ssl()
 
         try:
-            self._mqtt_client.connect(
-                self._gw_ip, self._port
+            _LOGGER.info(
+                "Attempting connection to gateway %s at %s:%s (TLS: %s)",
+                self._gw_sn,
+                self._gw_ip,
+                self._port,
+                self._is_tls,
             )
+            self._mqtt_client.connect(self._gw_ip, self._port)
             self._mqtt_client.loop_start()
             await asyncio.wait_for(self._connection_event.wait(), timeout=10)
 
             if self._connect_result is not None and self._connect_result == 0:
                 _LOGGER.info(
                     "Successfully connected to gateway %s at %s:%s",
-                    self._gw_sn, self._gw_ip, self._port)
+                    self._gw_sn,
+                    self._gw_ip,
+                    self._port,
+                )
                 return
 
         except asyncio.TimeoutError as err:
             _LOGGER.error(
-                "Timeout connecting to MQTT broker %s:%s",
-                self._gw_ip, self._port
+                "Connection timeout to gateway %s at %s:%s after 10 seconds - check network connectivity",
+                self._gw_sn,
+                self._gw_ip,
+                self._port,
             )
             raise DaliGatewayError(
-                f"Connection timeout to gateway {self._gw_sn}",
-                self._gw_sn
+                f"Connection timeout to gateway {self._gw_sn}", self._gw_sn
             ) from err
         except (ConnectionRefusedError, OSError) as err:
             _LOGGER.error(
-                "Network error connecting to MQTT broker %s:%s: %s",
-                self._gw_ip, self._port, str(err)
+                "Network error connecting to gateway %s at %s:%s: %s - check if gateway is powered on and accessible",
+                self._gw_sn,
+                self._gw_ip,
+                self._port,
+                str(err),
             )
             raise DaliGatewayError(
-                f"Network error connecting to gateway {self._gw_sn}: {err}",
-                self._gw_sn
+                f"Network error connecting to gateway {self._gw_sn}: {err}", self._gw_sn
             ) from err
 
         if self._connect_result is not None and self._connect_result in (4, 5):
             _LOGGER.error(
-                "Authentication failed for gateway %s (code %s). "
+                "Authentication failed for gateway %s (code %s) with credentials user='%s'. "
                 "Please press the gateway button and retry",
-                self._gw_sn, self._connect_result
+                self._gw_sn,
+                self._connect_result,
+                self._username,
             )
             raise DaliGatewayError(
                 f"Authentication failed for gateway {self._gw_sn}. "
                 "Please press the gateway button and retry",
-                self._gw_sn
+                self._gw_sn,
             )
-        else:
-            _LOGGER.error(
-                "Connection failed for gateway %s with result code %s",
-                self._gw_sn, self._connect_result
-            )
-            raise DaliGatewayError(
-                f"Connection failed for gateway {self._gw_sn} "
-                f"with code {self._connect_result}"
-            )
+        _LOGGER.error(
+            "Connection failed for gateway %s with result code %s",
+            self._gw_sn,
+            self._connect_result,
+        )
+        raise DaliGatewayError(
+            f"Connection failed for gateway {self._gw_sn} "
+            f"with code {self._connect_result}"
+        )
 
     async def disconnect(self) -> None:
         try:
             self._mqtt_client.loop_stop()
             self._mqtt_client.disconnect()
             self._connection_event.clear()
-            _LOGGER.info(
-                "Successfully disconnected from gateway %s", self._gw_sn)
+            _LOGGER.info("Successfully disconnected from gateway %s", self._gw_sn)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             _LOGGER.error(
-                "Error during disconnect from gateway %s: %s",
-                self._gw_sn, exc
+                "Error during disconnect from gateway %s: %s", self._gw_sn, exc
             )
             raise DaliGatewayError(
                 f"Failed to disconnect from gateway {self._gw_sn}: {exc}"
@@ -662,28 +657,24 @@ class DaliGateway:
         payload = {
             "cmd": "getVersion",
             "msgId": str(int(time.time())),
-            "gwSn": self._gw_sn
+            "gwSn": self._gw_sn,
         }
 
-        _LOGGER.debug(
-            "Gateway %s: Sending get version command",
-            self._gw_sn
-        )
+        _LOGGER.debug("Gateway %s: Sending get version command", self._gw_sn)
         self._mqtt_client.publish(self._pub_topic, json.dumps(payload))
 
         try:
             await asyncio.wait_for(self._version_received.wait(), timeout=30.0)
         except asyncio.TimeoutError:
             _LOGGER.warning(
-                "Gateway %s: Timeout waiting for version response",
-                self._gw_sn
+                "Gateway %s: Timeout waiting for version response", self._gw_sn
             )
 
         _LOGGER.info(
             "Gateway %s: Version retrieved - SW: %s, FW: %s",
             self._gw_sn,
             self._version_result["software"] if self._version_result else "N/A",
-            self._version_result["firmware"] if self._version_result else "N/A"
+            self._version_result["firmware"] if self._version_result else "N/A",
         )
         return self._version_result
 
@@ -693,26 +684,23 @@ class DaliGateway:
             "cmd": "searchDev",
             "searchFlag": "exited",
             "msgId": str(int(time.time())),
-            "gwSn": self._gw_sn
+            "gwSn": self._gw_sn,
         }
 
-        _LOGGER.debug(
-            "Gateway %s: Sending device discovery command",
-            self._gw_sn
-        )
+        _LOGGER.debug("Gateway %s: Sending device discovery command", self._gw_sn)
         self._mqtt_client.publish(self._pub_topic, json.dumps(search_payload))
 
         try:
             await asyncio.wait_for(self._devices_received.wait(), timeout=30.0)
         except asyncio.TimeoutError:
             _LOGGER.warning(
-                "Gateway %s: Timeout waiting for device discovery response",
-                self._gw_sn
+                "Gateway %s: Timeout waiting for device discovery response", self._gw_sn
             )
 
         _LOGGER.info(
             "Gateway %s: Device discovery completed, found %d device(s)",
-            self._gw_sn, len(self._devices_result)
+            self._gw_sn,
+            len(self._devices_result),
         )
         return self._devices_result
 
@@ -722,26 +710,23 @@ class DaliGateway:
             "cmd": "getGroup",
             "msgId": str(int(time.time())),
             "getFlag": "exited",
-            "gwSn": self._gw_sn
+            "gwSn": self._gw_sn,
         }
 
-        _LOGGER.debug(
-            "Gateway %s: Sending group discovery command",
-            self._gw_sn
-        )
+        _LOGGER.debug("Gateway %s: Sending group discovery command", self._gw_sn)
         self._mqtt_client.publish(self._pub_topic, json.dumps(search_payload))
 
         try:
             await asyncio.wait_for(self._groups_received.wait(), timeout=30.0)
         except asyncio.TimeoutError:
             _LOGGER.warning(
-                "Gateway %s: Timeout waiting for group discovery response",
-                self._gw_sn
+                "Gateway %s: Timeout waiting for group discovery response", self._gw_sn
             )
 
         _LOGGER.info(
             "Gateway %s: Group discovery completed, found %d group(s)",
-            self._gw_sn, len(self._groups_result)
+            self._gw_sn,
+            len(self._groups_result),
         )
         return self._groups_result
 
@@ -751,70 +736,73 @@ class DaliGateway:
             "cmd": "getScene",
             "msgId": str(int(time.time())),
             "getFlag": "exited",
-            "gwSn": self._gw_sn
+            "gwSn": self._gw_sn,
         }
 
-        _LOGGER.debug(
-            "Gateway %s: Sending scene discovery command",
-            self._gw_sn
-        )
+        _LOGGER.debug("Gateway %s: Sending scene discovery command", self._gw_sn)
         self._mqtt_client.publish(self._pub_topic, json.dumps(search_payload))
 
         try:
             await asyncio.wait_for(self._scenes_received.wait(), timeout=30.0)
         except asyncio.TimeoutError:
             _LOGGER.warning(
-                "Gateway %s: Timeout waiting for scene discovery response",
-                self._gw_sn
+                "Gateway %s: Timeout waiting for scene discovery response", self._gw_sn
             )
 
         _LOGGER.info(
             "Gateway %s: Scene discovery completed, found %d scene(s)",
-            self._gw_sn, len(self._scenes_result)
+            self._gw_sn,
+            len(self._scenes_result),
         )
         return self._scenes_result
 
     def command_write_dev(
-        self, dev_type: str, channel: int,
-        address: int, properties: List[Dict[str, Any]]
+        self,
+        dev_type: str,
+        channel: int,
+        address: int,
+        properties: List[Dict[str, Any]],
     ) -> None:
-        self.add_request("writeDev", dev_type, channel, address, {
-            "devType": dev_type,
-            "channel": channel,
-            "address": address,
-            "property": properties
-        })
+        self.add_request(
+            "writeDev",
+            dev_type,
+            channel,
+            address,
+            {
+                "devType": dev_type,
+                "channel": channel,
+                "address": address,
+                "property": properties,
+            },
+        )
 
-    def command_read_dev(
-        self, dev_type: str, channel: int,
-        address: int
-    ) -> None:
-        self.add_request("readDev", dev_type, channel, address, {
-            "devType": dev_type,
-            "channel": channel,
-            "address": address
-        })
+    def command_read_dev(self, dev_type: str, channel: int, address: int) -> None:
+        self.add_request(
+            "readDev",
+            dev_type,
+            channel,
+            address,
+            {"devType": dev_type, "channel": channel, "address": address},
+        )
 
     def command_get_energy(
-        self, dev_type: str, channel: int,
-        address: int, year: int, month: int,
-        day: int
+        self, dev_type: str, channel: int, address: int, year: int, month: int, day: int
     ) -> None:
-        self.add_request("getEnergy", dev_type, channel, address, {
-            "devType": dev_type,
-            "channel": channel,
-            "address": address,
-            "condition": {
-                "year": year,
-                "month": month,
-                "day": day,
-                "hour": []
-            }
-        })
+        self.add_request(
+            "getEnergy",
+            dev_type,
+            channel,
+            address,
+            {
+                "devType": dev_type,
+                "channel": channel,
+                "address": address,
+                "condition": {"year": year, "month": month, "day": day, "hour": []},
+            },
+        )
 
     def command_write_group(
-        self, group_id: int, channel: int,
-        properties: List[Dict[str, Any]]
+        self, group_id: int, channel: int, properties: List[Dict[str, Any]]
     ) -> None:
         command: Dict[str, Any] = {
             "cmd": "writeGroup",
@@ -822,27 +810,24 @@ class DaliGateway:
             "gwSn": self._gw_sn,
             "channel": channel,
             "groupId": group_id,
-            "data": properties
+            "data": properties,
         }
         command_json = json.dumps(command)
         self._mqtt_client.publish(self._pub_topic, command_json)
 
-    def command_write_scene(
-        self, scene_id: int, channel: int
-    ) -> None:
+    def command_write_scene(self, scene_id: int, channel: int) -> None:
         command: Dict[str, Any] = {
             "cmd": "writeScene",
             "msgId": str(int(time.time())),
             "gwSn": self._gw_sn,
             "channel": channel,
-            "sceneId": scene_id
+            "sceneId": scene_id,
         }
         command_json = json.dumps(command)
         self._mqtt_client.publish(self._pub_topic, command_json)
 
     def command_set_sensor_on_off(
-        self, dev_type: str, channel: int,
-        address: int, value: bool
+        self, dev_type: str, channel: int, address: int, value: bool
     ) -> None:
         command: Dict[str, Any] = {
             "cmd": "setSensorOnOff",
@@ -851,14 +836,13 @@ class DaliGateway:
             "devType": dev_type,
             "channel": channel,
             "address": address,
-            "value": value
+            "value": value,
         }
         command_json = json.dumps(command)
         self._mqtt_client.publish(self._pub_topic, command_json)
 
     def command_get_sensor_on_off(
-        self, dev_type: str, channel: int,
-        address: int
+        self, dev_type: str, channel: int, address: int
     ) -> None:
         command: Dict[str, Any] = {
             "cmd": "getSensorOnOff",
@@ -866,7 +850,36 @@ class DaliGateway:
             "gwSn": self._gw_sn,
             "devType": dev_type,
             "channel": channel,
-            "address": address
+            "address": address,
+        }
+        command_json = json.dumps(command)
+        self._mqtt_client.publish(self._pub_topic, command_json)
+
+    def command_get_dev_param(self, dev_type: str, channel: int, address: int) -> None:
+        command: Dict[str, Any] = {
+            "cmd": "getDevParam",
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+            "devType": dev_type,
+            "channel": channel,
+            "address": address,
+        }
+        command_json = json.dumps(command)
+        self._mqtt_client.publish(self._pub_topic, command_json)
+
+    def command_set_dev_param(
+        self, dev_type: str, channel: int, address: int, param: DeviceParamType
+    ) -> None:
+        command: Dict[str, Any] = {
+            "cmd": "setDevParam",
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+            "devType": dev_type,
+            "channel": channel,
+            "address": address,
+            "paramer": {
+                "maxBrightness": param["max_brightness"],
+            },
         }
         command_json = json.dumps(command)
         self._mqtt_client.publish(self._pub_topic, command_json)

@@ -2,22 +2,21 @@
 # pylint: disable=invalid-name
 
 from .__version__ import __version__
-from .gateway import DaliGateway
 from .device import Device
+from .gateway import DaliGateway
 from .group import Group
 from .scene import Scene
-from .types import SceneType, GroupType, DeviceType, DaliGatewayType, VersionType
-
+from .types import DaliGatewayType, DeviceType, GroupType, SceneType, VersionType
 
 __all__ = [
-    "__version__",
     "DaliGateway",
-    "Device",
-    "Group",
-    "Scene",
-    "DeviceType",
-    "GroupType",
-    "SceneType",
     "DaliGatewayType",
+    "Device",
+    "DeviceType",
+    "Group",
+    "GroupType",
+    "Scene",
+    "SceneType",
     "VersionType",
+    "__version__",
 ]

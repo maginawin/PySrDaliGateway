@@ -1,6 +1,6 @@
 """Dali Gateway Types"""
 
-from typing import TypedDict, List
+from typing import List, TypedDict
 
 
 class DeviceProperty:
@@ -52,3 +52,22 @@ class DaliGatewayType(TypedDict):
 class VersionType(TypedDict):
     software: str
     firmware: str
+
+
+class DeviceParamType(TypedDict):
+    # address: int
+    # fade_time: int
+    # fade_rate: int
+    # power_status: int
+    # system_failure_status: int
+    max_brightness: int
+    # min_brightness: int
+    # standby_power: int
+    # max_power: int
+    # cct_cool: int
+    # cct_warm: int
+    # phy_cct_cool: int
+    # phy_cct_warm: int
+    # step_cct: int
+    # temp_thresholds: int
+    # runtime_thresholds: int

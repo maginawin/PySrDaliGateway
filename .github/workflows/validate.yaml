@@ -10,22 +10,33 @@ permissions:
   contents: read
 
 jobs:
-  validate-lint:
+  validate-ruff:
+    name: Code style and linting
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the repository
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.13"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pylint
+          pip install ruff
 
-      - name: Static analyse the code with pylint
+      - name: Lint with Ruff
         run: |
-          pylint $(git ls-files '*.py')
+          ruff check --output-format=github .
+
+      - name: Check code formatting with Ruff
+        run: |
+          ruff format --check .
 
   validate-mypy:
+    name: Type checking
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the repository
@@ -44,3 +55,35 @@ jobs:
       - name: Type check with mypy
         run: |
           mypy --show-error-codes --pretty PySrDaliGateway
+
+  tests:
+    name: Run tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Run tests
+        run: |
+          pytest --cov=PySrDaliGateway --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.13'
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella

@@ -20,8 +20,9 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
     "mypy>=1.0.0",
-    "pylint>=2.15.0",
+    "ruff>=0.12.1",
 ]
 
 [project.urls]
@@ -52,6 +53,129 @@ warn_unused_ignores = true
 disallow_incomplete_defs = false
 disallow_untyped_defs = false
 
-[tool.pylint.main]
-jobs = 4
-persistent = false
+# Ruff configuration adapted from Home Assistant Core
+[tool.ruff]
+required-version = ">=0.12.1"
+
+[tool.ruff.lint]
+select = [
+    "A001",    # Variable {name} is shadowing a Python builtin
+    "ASYNC",   # flake8-async
+    "B002",    # Python allows the use of unary + 
+    "B005",    # Using .strip() with multi-character strings is misleading
+    "B007",    # Loop control variable not used within the loop body
+    "B009",    # Do not call getattr with a constant attribute value
+    "B014",    # Redundant exception types in except (Exception, TypeError)
+    "B015",    # Pointless comparison
+    "B017",    # pytest.raises without expected exception
+    "B018",    # Found useless expression
+    "B023",    # Function definition does not bind loop variable
+    "B024",    # Abstract base class without abstract methods
+    "B026",    # Star-arg unpacking after a keyword argument is strongly discouraged
+    "B032",    # Possible unintentional type annotation (using `:`)
+    "B035",    # Static key in dictionary comprehension
+    "BLE",     # flake8-blind-except
+    "C",       # flake8-comprehensions
+    "COM818",  # Trailing comma on bare tuple prohibited
+    "E",       # pycodestyle errors
+    "F",       # pyflakes
+    "FLY",     # flynt
+    "G",       # flake8-logging-format
+    "I",       # isort
+    "INP",     # flake8-no-pep420
+    "ISC",     # flake8-implicit-str-concat
+    "ICN001",  # import should be renamed
+    "LOG",     # flake8-logging
+    "N804",    # First argument of a class method should be named cls
+    "N805",    # First argument of a method should be named self
+    "N815",    # Variable in class scope should not be mixedCase
+    "PERF",    # perflint
+    "PGH",     # pygrep-hooks
+    "PIE",     # flake8-pie
+    "PL",      # pylint
+    "PT",      # flake8-pytest-style
+    "PTH",     # flake8-use-pathlib
+    "PYI",     # flake8-pyi
+    "RET",     # flake8-return
+    "RSE",     # flake8-raise
+    "RUF",     # ruff-specific rules
+    "S102",    # Use of exec detected
+    "S103",    # bad-file-permissions
+    "S108",    # Probable insecure usage of temp file/directory
+    "S306",    # Use of insecure and deprecated function (mktemp)
+    "S307",    # Use of possibly insecure function - consider using safer ast.literal_eval
+    "S313",    # Using xml to parse untrusted data is insecure
+    "S314",    # Using xml to parse untrusted data is insecure
+    "S315",    # Using xml to parse untrusted data is insecure
+    "S316",    # Using xml to parse untrusted data is insecure
+    "S317",    # Using xml to parse untrusted data is insecure
+    "S318",    # Using xml to parse untrusted data is insecure
+    "S319",    # Using xml to parse untrusted data is insecure
+    "S601",    # paramiko-call-with-shell-equals-true
+    "S602",    # subprocess-popen-with-shell-equals-true
+    "S604",    # Function call with shell=True parameter identified
+    "S608",    # Possible SQL injection vector through string-based query construction
+    "S609",    # Unix command injection
+    "SIM",     # flake8-simplify
+    "SLF",     # flake8-self
+    "SLOT",    # flake8-slots
+    "T100",    # Trace found: {name} used
+    "T20",     # flake8-print
+    "TC",      # flake8-type-checking
+    "TID",     # flake8-tidy-imports
+    "TRY",     # tryceratops
+    "UP",      # pyupgrade
+    "W",       # pycodestyle warnings
+]
+
+ignore = [
+    "D202",    # No blank lines allowed after function docstring
+    "D203",    # 1 blank line required before class docstring
+    "D213",    # Multi-line docstring summary should start at the second line
+    "E501",    # Line too long
+    "PLC1901", # compare-to-empty-string
+    "PLR0911", # Too many arguments
+    "PLR0912", # Too many branches
+    "PLR0913", # Too many arguments
+    "PLR0915", # Too many statements
+    "PLR2004", # Magic value used in comparison
+    "PLW2901", # for loop variable overwritten by assignment target
+    "PT011",   # pytest.raises is too broad
+    "PT018",   # Assertion should be broken down into multiple parts
+    "RUF001",  # String contains ambiguous unicode character
+    "RUF002",  # Docstring contains ambiguous unicode character
+    "RUF003",  # Comment contains ambiguous unicode character
+    "SIM102",  # Use a single if-statement instead of nested if-statements
+    "SIM103",  # Return the condition directly
+    "SIM108",  # Use ternary operator instead of if-else-block
+    "SIM115",  # Use context handler for opening files
+    "TC001",   # Move application import into a type-checking block
+    "TC002",   # Move third-party import into a type-checking block
+    "TC003",   # Move standard library import into a type-checking block
+    "TRY003",  # Avoid specifying long messages outside the exception class
+    "TRY400",  # Use logging.exception instead of logging.error
+    "UP038",   # Use `X | Y` in `isinstance` call instead of `(X, Y)`
+    "W191",    # indentation contains tabs
+    "Q",       # quotes (handled by formatter)
+    "COM812",  # missing-trailing-comma (handled by formatter)
+    "COM819",  # prohibited-trailing-comma (handled by formatter)
+]
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+mark-parentheses = false
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+combine-as-imports = true
+split-on-trailing-comma = false
+
+[tool.ruff.lint.mccabe]
+max-complexity = 25
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"script/*" = ["T20"]  # Allow print statements in scripts
+"tests/*" = ["S101"]  # Allow assert statements in tests
