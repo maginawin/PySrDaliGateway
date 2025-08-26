@@ -27,4 +27,36 @@ pip install PySrDaliGateway
 ## Requirements
 
 - Python 3.8+
-- paho-mqtt>=1.6.0
+- paho-mqtt>=2.0.0
+
+## CLI Testing Tool
+
+Testing script located at `script/test_discovery_to_connect.py` for hardware validation:
+
+```bash
+# Run all tests
+python script/test_discovery_to_connect.py
+
+# Run specific tests
+python script/test_discovery_to_connect.py --tests discovery connection devices
+
+# List available tests
+python script/test_discovery_to_connect.py --list-tests
+
+# Test with specific gateway
+python script/test_discovery_to_connect.py --gateway-sn "YOUR_GATEWAY_SN"
+
+# Limit device operations for faster testing
+python script/test_discovery_to_connect.py --device-limit 5
+```
+
+Available tests:
+- `discovery` - Discover DALI gateways on network
+- `connection` - Connect to discovered gateway
+- `version` - Get gateway firmware version
+- `devices` - Discover connected DALI devices
+- `readdev` - Read device status via MQTT
+- `devparam` - Get device parameters
+- `groups` - Discover DALI groups
+- `scenes` - Discover DALI scenes
+- `reconnection` - Test disconnect/reconnect cycle
