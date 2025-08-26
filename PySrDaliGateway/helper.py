@@ -1,4 +1,5 @@
 """Helper functions for Dali Gateway"""
+
 from .const import DEVICE_TYPE_MAP
 
 
@@ -22,9 +23,7 @@ def is_sensor_device(dev_type: str) -> bool:
     return is_motion_sensor(dev_type) or is_illuminance_sensor(dev_type)
 
 
-def gen_device_unique_id(
-    dev_type: str, channel: int, address: int, gw_sn: str
-) -> str:
+def gen_device_unique_id(dev_type: str, channel: int, address: int, gw_sn: str) -> str:
     return f"{dev_type}{channel:04d}{address:02d}{gw_sn}"
 
 

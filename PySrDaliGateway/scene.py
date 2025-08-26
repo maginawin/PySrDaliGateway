@@ -1,17 +1,14 @@
 """Dali Gateway Scene"""
 
-from .types import SceneType
 from .gateway import DaliGateway
 from .helper import gen_scene_unique_id
+from .types import SceneType
 
 
 class Scene:
     """Dali Gateway Scene"""
 
-    def __init__(
-        self, gateway: DaliGateway,
-        scene: SceneType
-    ) -> None:
+    def __init__(self, gateway: DaliGateway, scene: SceneType) -> None:
         self._gateway = gateway
         self._id = scene["id"]
         self._name = scene["name"]
@@ -26,9 +23,7 @@ class Scene:
 
     @property
     def unique_id(self) -> str:
-        return gen_scene_unique_id(
-            self._id, self._channel, self._gateway.gw_sn
-        )
+        return gen_scene_unique_id(self._id, self._channel, self._gateway.gw_sn)
 
     @property
     def scene_id(self) -> int:

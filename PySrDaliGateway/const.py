@@ -41,10 +41,10 @@ DEVICE_TYPE_MAP = {
 
 COLOR_MODE_MAP = {
     "0102": "color_temp",  # CCT
-    "0103": "hs",          # RGB
-    "0104": "hs",          # XY
-    "0105": "rgbw",        # RGBW
-    "0106": "rgbw",        # RGBWA
+    "0103": "hs",  # RGB
+    "0104": "hs",  # XY
+    "0105": "rgbw",  # RGBW
+    "0106": "rgbw",  # RGBWA
 }
 
 BUTTON_EVENTS = {
