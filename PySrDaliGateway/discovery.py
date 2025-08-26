@@ -1,6 +1,7 @@
 """Dali Gateway Discovery"""
 
 import asyncio
+import contextlib
 import ipaddress
 import json
 import logging
@@ -100,10 +101,8 @@ class MulticastSender:
     def create_listener_socket(self, interfaces: List[Dict[str, Any]]) -> socket.socket:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
+        with contextlib.suppress(AttributeError, OSError):
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        except (AttributeError, OSError):
-            pass
         self._bind_to_port(sock)
         self._join_multicast_groups(sock, interfaces)
         sock.setblocking(False)
@@ -112,14 +111,15 @@ class MulticastSender:
     def cleanup_socket(
         self, sock: socket.socket, interfaces: List[Dict[str, Any]]
     ) -> None:
+        mreq_list = []
         for interface in interfaces:
-            try:
-                mreq = socket.inet_aton(self.MULTICAST_ADDR) + socket.inet_aton(
-                    interface["address"]
-                )
+            mreq = socket.inet_aton(self.MULTICAST_ADDR) + socket.inet_aton(
+                interface["address"]
+            )
+            mreq_list.append(mreq)
+        for mreq in mreq_list:
+            with contextlib.suppress(OSError):
                 sock.setsockopt(socket.IPPROTO_IP, socket.IP_DROP_MEMBERSHIP, mreq)
-            except OSError:
-                pass
         sock.close()
 
     async def send_multicast_message(
@@ -132,20 +132,28 @@ class MulticastSender:
         await asyncio.gather(*tasks, return_exceptions=True)
 
     def _bind_to_port(self, sock: socket.socket) -> None:
-        for port in (
-            [self.LISTEN_PORT]
-            + list(range(self.LISTEN_PORT + 1, self.LISTEN_PORT + 10))
-            + [0]
-        ):
+        ports_to_try = [
+            self.LISTEN_PORT,
+            *range(self.LISTEN_PORT + 1, self.LISTEN_PORT + 10),
+            0
+        ]
+
+        def try_bind_port(port: int) -> bool:
             try:
                 sock.bind(("0.0.0.0", port))
-                _LOGGER.debug("Successfully bound listener socket to port %d", port)
-                return
-            except OSError as exc:
-                if port == 0:
-                    _LOGGER.error("Unable to bind to any port after trying all options")
-                    raise OSError("Unable to bind to any port") from exc
+            except OSError:
                 _LOGGER.debug("Port %d unavailable, trying next port", port)
+                return False
+            else:
+                _LOGGER.debug("Successfully bound listener socket to port %d", port)
+                return True
+
+        for port in ports_to_try:
+            if try_bind_port(port):
+                return
+
+        _LOGGER.error("Unable to bind to any port after trying all options")
+        raise OSError("Unable to bind to any port")
 
     def _join_multicast_groups(
         self, sock: socket.socket, interfaces: List[Dict[str, Any]]
@@ -156,10 +164,8 @@ class MulticastSender:
             mreq = socket.inet_aton(self.MULTICAST_ADDR) + socket.inet_aton(
                 interface["address"]
             )
-            try:
+            with contextlib.suppress(OSError):
                 sock.setsockopt(socket.IPPROTO_IP, socket.IP_DROP_MEMBERSHIP, mreq)
-            except OSError:
-                pass
 
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
             _LOGGER.debug(
@@ -249,10 +255,8 @@ class DaliGatewayDiscovery:
         )
         for task in pending:
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
         return unique_gateways
 
     async def _sender_loop(

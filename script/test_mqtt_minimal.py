@@ -71,7 +71,7 @@ def main():
         client.loop_stop()
         client.disconnect()
 
-    except Exception as e:  # pylint: disable=broad-exception-caught
+    except (ConnectionError, ssl.SSLError, OSError) as e:
         _LOGGER.error("Error: %s", e)
 
 if __name__ == "__main__":

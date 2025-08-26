@@ -4,6 +4,7 @@
 import argparse
 import asyncio
 import logging
+import sys
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from PySrDaliGateway.discovery import DaliGatewayDiscovery
@@ -91,12 +92,13 @@ class DaliGatewayTester:
         try:
             await self.gateway.connect()
             self.is_connected = True
-            _LOGGER.info("✓ Successfully connected to gateway!")
-            return True
         except DaliGatewayError as e:
             _LOGGER.error("Connection error: %s", e)
             self.is_connected = False
             return False
+        else:
+            _LOGGER.info("✓ Successfully connected to gateway!")
+            return True
 
     async def test_disconnect(self) -> bool:
         """Disconnect from gateway."""
@@ -108,11 +110,12 @@ class DaliGatewayTester:
         try:
             await self.gateway.disconnect()
             self.is_connected = False
-            _LOGGER.info("✓ Disconnected successfully")
-            return True
         except DaliGatewayError as e:
             _LOGGER.error("Disconnect error: %s", e)
             return False
+        else:
+            _LOGGER.info("✓ Disconnected successfully")
+            return True
 
     async def test_reconnection(self) -> bool:
         """Test disconnect and reconnect cycle."""
@@ -154,11 +157,12 @@ class DaliGatewayTester:
         try:
             gateway = self._assert_gateway()
             version = await gateway.get_version()
-            _LOGGER.info("✓ Gateway version: %s", version)
-            return True
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except (DaliGatewayError, RuntimeError) as e:
             _LOGGER.error("Version test failed: %s", e)
             return False
+        else:
+            _LOGGER.info("✓ Gateway version: %s", version)
+            return True
 
     async def test_device_discovery(self) -> bool:
         """Test device discovery."""
@@ -169,6 +173,10 @@ class DaliGatewayTester:
         try:
             gateway = self._assert_gateway()
             self.devices = await gateway.discover_devices()
+        except (DaliGatewayError, RuntimeError) as e:
+            _LOGGER.error("Device discovery failed: %s", e)
+            return False
+        else:
             _LOGGER.info("✓ Found %d device(s)", len(self.devices))
 
             for device in self.devices[:5]:  # Show first 5 devices
@@ -180,9 +188,6 @@ class DaliGatewayTester:
                     device["address"],
                 )
             return True
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            _LOGGER.error("Device discovery failed: %s", e)
-            return False
 
     async def test_read_dev(self, device_limit: Optional[int] = None) -> bool:
         """Test reading device status."""
@@ -211,12 +216,13 @@ class DaliGatewayTester:
                     device["dev_type"], device["channel"], device["address"]
                 )
 
+        except (DaliGatewayError, RuntimeError) as e:
+            _LOGGER.error("ReadDev test failed: %s", e)
+            return False
+        else:
             _LOGGER.info("✓ ReadDev commands sent for %d devices",
                          len(devices_to_test))
             return True
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            _LOGGER.error("ReadDev test failed: %s", e)
-            return False
 
     async def test_get_dev_param(self, device_limit: int = 3) -> bool:
         """Test getting device parameters."""
@@ -248,14 +254,15 @@ class DaliGatewayTester:
             gateway = self._assert_gateway()
             gateway.command_get_dev_param("FFFF", 0, 0)
 
+        except (DaliGatewayError, RuntimeError) as e:
+            _LOGGER.error("GetDevParam test failed: %s", e)
+            return False
+        else:
             _LOGGER.info(
                 "✓ GetDevParam commands sent for %d devices", len(
                     devices_to_test)
             )
             return True
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            _LOGGER.error("GetDevParam test failed: %s", e)
-            return False
 
     async def test_group_discovery(self) -> bool:
         """Test group discovery."""
@@ -266,11 +273,12 @@ class DaliGatewayTester:
         try:
             gateway = self._assert_gateway()
             self.groups = await gateway.discover_groups()
-            _LOGGER.info("✓ Found %d group(s)", len(self.groups))
-            return True
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except (DaliGatewayError, RuntimeError) as e:
             _LOGGER.error("Group discovery failed: %s", e)
             return False
+        else:
+            _LOGGER.info("✓ Found %d group(s)", len(self.groups))
+            return True
 
     async def test_scene_discovery(self) -> bool:
         """Test scene discovery."""
@@ -281,11 +289,12 @@ class DaliGatewayTester:
         try:
             gateway = self._assert_gateway()
             self.scenes = await gateway.discover_scenes()
-            _LOGGER.info("✓ Found %d scene(s)", len(self.scenes))
-            return True
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except (DaliGatewayError, RuntimeError) as e:
             _LOGGER.error("Scene discovery failed: %s", e)
             return False
+        else:
+            _LOGGER.info("✓ Found %d scene(s)", len(self.scenes))
+            return True
 
     def _check_connection(self) -> bool:
         """Check if gateway is connected."""
@@ -318,19 +327,23 @@ class DaliGatewayTester:
             ("Disconnect", self.test_disconnect),
         ]
 
-        results: Dict[str, bool] = {}
-        for test_name, test_func in tests:
+        async def run_single_test(test_name: str, test_func: Callable[[], Any]) -> bool:
             try:
                 result = await test_func()
-                results[test_name] = result
+            except (DaliGatewayError, RuntimeError, asyncio.TimeoutError) as e:
+                _LOGGER.error(
+                    "❌ %s test failed with exception: %s", test_name, e)
+                return False
+            else:
                 if not result:
                     _LOGGER.error("❌ %s test failed", test_name)
                 else:
                     _LOGGER.info("✅ %s test passed", test_name)
-            except Exception as e:  # pylint: disable=broad-exception-caught
-                _LOGGER.error(
-                    "❌ %s test failed with exception: %s", test_name, e)
-                results[test_name] = False
+                return result
+
+        results: Dict[str, bool] = {}
+        for test_name, test_func in tests:
+            results[test_name] = await run_single_test(test_name, test_func)
 
         passed = sum(1 for r in results.values() if r)
         total = len(results)
@@ -359,7 +372,7 @@ def parse_arguments():
         epilog="""
 Examples:
   %(prog)s                              # Run all tests
-  %(prog)s --tests discovery connection # Run only discovery and connection tests  
+  %(prog)s --tests discovery connection # Run only discovery and connection tests
   %(prog)s --list-tests                 # List available tests
   %(prog)s --device-limit 5             # Limit device operations to 5 devices
   %(prog)s --gateway-index 1            # Connect to second discovered gateway
@@ -517,7 +530,7 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
                 if test_name in ["discovery", "connection"]:
                     _LOGGER.error("Critical test failed, stopping execution")
                     break
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except (DaliGatewayError, RuntimeError, asyncio.TimeoutError) as e:
             _LOGGER.error("❌ %s failed with exception: %s", description, e)
             results[test_name] = False
             # Stop on critical failures
@@ -572,14 +585,13 @@ async def main() -> bool:
 
     try:
         tester = DaliGatewayTester()
-        success = await run_selected_tests(tester, args)
-        return success
+        return await run_selected_tests(tester, args)
 
-    except Exception as e:  # pylint: disable=broad-exception-caught
+    except (DaliGatewayError, RuntimeError, asyncio.TimeoutError) as e:
         _LOGGER.error("Unexpected error during testing: %s", e)
         return False
 
 
 if __name__ == "__main__":
     success = asyncio.run(main())
-    exit(0 if success else 1)
+    sys.exit(0 if success else 1)
