@@ -138,7 +138,9 @@ class DaliGatewayTester:
             "username": self.gateway_config.get("username", ""),
             "passwd": self.gateway_config.get("passwd", ""),
         }
-        _LOGGER.info("Updated gateway config: %s", new_config)
+        # Log config without sensitive data
+        safe_config = {k: v for k, v in new_config.items() if k not in ["username", "passwd"]}
+        _LOGGER.info("Updated gateway config (credentials hidden): %s", safe_config)
 
         # Reconnect
         self.gateway_config = new_config

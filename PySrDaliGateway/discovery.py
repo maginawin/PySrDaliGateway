@@ -371,16 +371,9 @@ class DaliGatewayDiscovery:
         except UnicodeDecodeError as e:
             _LOGGER.error(
                 "Failed to decrypt gateway credentials for %s: %s. "
-                "Raw encrypted data - user: '%s', pass: '%s'. "
                 "This gateway will be skipped.",
                 gw_sn,
                 e,
-                encrypted_user[:20] + "..."
-                if len(encrypted_user) > 20
-                else encrypted_user,
-                encrypted_pass[:20] + "..."
-                if len(encrypted_pass) > 20
-                else encrypted_pass,
             )
             return None
 
