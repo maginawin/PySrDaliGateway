@@ -120,7 +120,9 @@ class DaliGateway:
 
         self._mqtt_client.publish(self._pub_topic, json.dumps(command))
 
-        _LOGGER.debug("Gateway %s: Sent batch %s %s", self._gw_sn, cmd, json.dumps(command))
+        _LOGGER.debug(
+            "Gateway %s: Sent batch %s %s", self._gw_sn, cmd, json.dumps(command)
+        )
 
         self._pending_requests[cmd].clear()
         self._batch_timer.pop(cmd)

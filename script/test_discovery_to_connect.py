@@ -113,8 +113,7 @@ class DaliGatewayTester:
         _LOGGER.info("=== Testing Gateway Connection ===")
         selected_gateway = self.gateways[gateway_index]
         self.gateway_config = {**selected_gateway}
-        _LOGGER.info("Connecting to gateway '%s'...",
-                     self.gateway_config["name"])
+        _LOGGER.info("Connecting to gateway '%s'...", self.gateway_config["name"])
         _LOGGER.info("Gateway config: %s", self.gateway_config)
 
         self.gateway = DaliGateway(self.gateway_config)
@@ -254,8 +253,7 @@ class DaliGatewayTester:
             _LOGGER.error("ReadDev test failed: %s", e)
             return False
         else:
-            _LOGGER.info("✓ ReadDev commands sent for %d devices",
-                         len(devices_to_test))
+            _LOGGER.info("✓ ReadDev commands sent for %d devices", len(devices_to_test))
             return True
 
     async def test_set_dev_param(self) -> bool:
@@ -294,10 +292,10 @@ class DaliGatewayTester:
             # Turn on all the lights to see effect
             _LOGGER.info("Turning on all light to see effect...")
             gateway.command_write_dev(
-                "FFFF", 0, 1,
-                [
-                    {"dpid": 20, "dataType": "bool", "value": True}
-                ],
+                "FFFF",
+                0,
+                1,
+                [{"dpid": 20, "dataType": "bool", "value": True}],
             )
 
             # Read parameters after setting to 100
@@ -321,7 +319,10 @@ class DaliGatewayTester:
             return False
         else:
             _LOGGER.info(
-                "✓ SetDevParam commands completed for channel %s address %s", channel, address)
+                "✓ SetDevParam commands completed for channel %s address %s",
+                channel,
+                address,
+            )
             return True
 
     async def test_group_discovery(self) -> bool:
@@ -359,8 +360,7 @@ class DaliGatewayTester:
     def _check_connection(self) -> bool:
         """Check if gateway is connected."""
         if not self.gateway or not self.is_connected:
-            _LOGGER.error(
-                "Not connected to gateway! Run connection test first.")
+            _LOGGER.error("Not connected to gateway! Run connection test first.")
             return False
         return True
 
@@ -391,8 +391,7 @@ class DaliGatewayTester:
             try:
                 result = await test_func()
             except (DaliGatewayError, RuntimeError, asyncio.TimeoutError) as e:
-                _LOGGER.error(
-                    "❌ %s test failed with exception: %s", test_name, e)
+                _LOGGER.error("❌ %s test failed with exception: %s", test_name, e)
                 return False
             else:
                 if not result:
