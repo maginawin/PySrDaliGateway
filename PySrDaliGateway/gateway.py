@@ -120,7 +120,7 @@ class DaliGateway:
 
         self._mqtt_client.publish(self._pub_topic, json.dumps(command))
 
-        _LOGGER.debug("Gateway %s: Sent batch readDev %s", self._gw_sn, command)
+        _LOGGER.debug("Gateway %s: Sent batch %s %s", self._gw_sn, cmd, json.dumps(command))
 
         self._pending_requests[cmd].clear()
         self._batch_timer.pop(cmd)
@@ -863,6 +863,7 @@ class DaliGateway:
             "devType": dev_type,
             "channel": channel,
             "address": address,
+            "fromBus": True,
         }
         command_json = json.dumps(command)
         self._mqtt_client.publish(self._pub_topic, command_json)
@@ -874,12 +875,19 @@ class DaliGateway:
             "cmd": "setDevParam",
             "msgId": str(int(time.time())),
             "gwSn": self._gw_sn,
-            "devType": dev_type,
-            "channel": channel,
-            "address": address,
-            "paramer": {
-                "maxBrightness": param["max_brightness"],
-            },
+            "data": [
+                {
+                    "devType": dev_type,
+                    "channel": channel,
+                    "address": address,
+                    "paramer": {
+                        "maxBrightness": param["max_brightness"],
+                    },
+                }
+            ],
         }
         command_json = json.dumps(command)
+        _LOGGER.debug(
+            "Gateway %s: Sending setDevParam command: %s", self._gw_sn, command
+        )
         self._mqtt_client.publish(self._pub_topic, command_json)

@@ -10,7 +10,13 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from PySrDaliGateway.discovery import DaliGatewayDiscovery
 from PySrDaliGateway.exceptions import DaliGatewayError
 from PySrDaliGateway.gateway import DaliGateway
-from PySrDaliGateway.types import DaliGatewayType, DeviceType, GroupType, SceneType
+from PySrDaliGateway.types import (
+    DaliGatewayType,
+    DeviceParamType,
+    DeviceType,
+    GroupType,
+    SceneType,
+)
 
 logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -36,6 +42,19 @@ class DaliGatewayTester:
         """Step 1: Discover DALI gateways."""
         _LOGGER.info("=== Testing Gateway Discovery ===")
 
+        # Preserve existing credentials if we have a specific gateway_sn
+        existing_credentials = {}
+        if (
+            gateway_sn
+            and self.gateway_config
+            and self.gateway_config.get("gw_sn") == gateway_sn
+        ):
+            existing_credentials = {
+                "username": self.gateway_config.get("username", ""),
+                "passwd": self.gateway_config.get("passwd", ""),
+            }
+            _LOGGER.info("Preserving credentials for gateway %s", gateway_sn)
+
         if not self.discovery:
             self.discovery = DaliGatewayDiscovery()
 
@@ -52,6 +71,17 @@ class DaliGatewayTester:
         except DaliGatewayError as e:
             _LOGGER.error("Discovery failed: %s", e)
             return False
+
+        # Apply preserved credentials if we have them and found the matching gateway
+        if existing_credentials and gateway_sn:
+            for gateway in self.gateways:
+                if gateway["gw_sn"] == gateway_sn:
+                    # Only overwrite if the discovered credentials are empty
+                    if not gateway.get("username") and not gateway.get("passwd"):
+                        gateway.update(existing_credentials)
+                        _LOGGER.info(
+                            "Applied preserved credentials to gateway %s", gateway_sn
+                        )
 
         _LOGGER.info("✓ Found %d gateway(s)", len(self.gateways))
 
@@ -83,7 +113,8 @@ class DaliGatewayTester:
         _LOGGER.info("=== Testing Gateway Connection ===")
         selected_gateway = self.gateways[gateway_index]
         self.gateway_config = {**selected_gateway}
-        _LOGGER.info("Connecting to gateway '%s'...", self.gateway_config["name"])
+        _LOGGER.info("Connecting to gateway '%s'...",
+                     self.gateway_config["name"])
         _LOGGER.info("Gateway config: %s", self.gateway_config)
 
         self.gateway = DaliGateway(self.gateway_config)
@@ -129,16 +160,20 @@ class DaliGatewayTester:
             _LOGGER.error("No gateway config available")
             return False
 
+        # Preserve original credentials
+        original_username = self.gateway_config.get("username", "")
+        original_passwd = self.gateway_config.get("passwd", "")
+
         _LOGGER.info("Re-discovering gateway...")
         if not await self.test_discovery(self.gateway_config["gw_sn"]):
             return False
 
-        # Update credentials from original config
+        # Update credentials from original config (preserve non-empty credentials)
         new_gateway = self.gateways[0]
         new_config: DaliGatewayType = {
             **new_gateway,
-            "username": self.gateway_config.get("username", ""),
-            "passwd": self.gateway_config.get("passwd", ""),
+            "username": original_username,
+            "passwd": original_passwd,
         }
 
         # Reconnect
@@ -219,46 +254,74 @@ class DaliGatewayTester:
             _LOGGER.error("ReadDev test failed: %s", e)
             return False
         else:
-            _LOGGER.info("✓ ReadDev commands sent for %d devices", len(devices_to_test))
+            _LOGGER.info("✓ ReadDev commands sent for %d devices",
+                         len(devices_to_test))
             return True
 
-    async def test_get_dev_param(self, device_limit: int = 3) -> bool:
-        """Test getting device parameters."""
+    async def test_set_dev_param(self) -> bool:
+        """Test setting device parameters (maxBrightness) for channel 0 address 1."""
         if not self._check_connection():
             return False
 
-        if not self.devices:
-            _LOGGER.error("No devices available! Run device discovery first.")
-            return False
+        interval = 8  # seconds
 
-        _LOGGER.info("=== Testing GetDevParam Commands ===")
+        _LOGGER.info("=== Testing SetDevParam Commands ===")
         try:
-            devices_to_test = self.devices[:device_limit]
+            # Test with fixed channel 0, address 1, using Dimmer device type
+            channel = 0
+            address = 1
+            dev_type = "0101"  # Dimmer device type
+            _LOGGER.info(
+                "Testing device: Channel %s, Address %s, Type %s",
+                channel,
+                address,
+                dev_type,
+            )
 
-            for device in devices_to_test:
-                _LOGGER.info(
-                    "Getting device parameters for: %s (Channel %s, Address %s)",
-                    device["name"],
-                    device["channel"],
-                    device["address"],
-                )
-                gateway = self._assert_gateway()
-                gateway.command_get_dev_param(
-                    device["dev_type"], device["channel"], device["address"]
-                )
-
-            # Test with special "FFFF" parameter
-            _LOGGER.info("Testing special FFFF parameter...")
             gateway = self._assert_gateway()
-            gateway.command_get_dev_param("FFFF", 0, 0)
+
+            # Get current parameters
+            _LOGGER.info("Getting current device parameters...")
+            gateway.command_get_dev_param(dev_type, channel, address)
+            await asyncio.sleep(interval)
+
+            # Set maxBrightness to 100
+            _LOGGER.info("Setting maxBrightness to 100...")
+            param_100: DeviceParamType = {"max_brightness": 100}
+            gateway.command_set_dev_param("FFFF", 0, 1, param_100)
+            await asyncio.sleep(interval)
+
+            # Turn on all the lights to see effect
+            _LOGGER.info("Turning on all light to see effect...")
+            gateway.command_write_dev(
+                "FFFF", 0, 1,
+                [
+                    {"dpid": 20, "dataType": "bool", "value": True}
+                ],
+            )
+
+            # Read parameters after setting to 100
+            _LOGGER.info("Reading parameters after setting to 100...")
+            gateway.command_get_dev_param(dev_type, channel, address)
+            await asyncio.sleep(interval)
+
+            # Set maxBrightness back to 1000 (default)
+            _LOGGER.info("Setting maxBrightness back to 1000...")
+            param_1000: DeviceParamType = {"max_brightness": 1000}
+            gateway.command_set_dev_param("FFFF", 0, 1, param_1000)
+            await asyncio.sleep(interval)
+
+            # Read parameters after setting back to 1000
+            _LOGGER.info("Reading parameters after setting back to 1000...")
+            gateway.command_get_dev_param(dev_type, channel, address)
+            await asyncio.sleep(interval)
 
         except (DaliGatewayError, RuntimeError) as e:
-            _LOGGER.error("GetDevParam test failed: %s", e)
+            _LOGGER.error("SetDevParam test failed: %s", e)
             return False
         else:
             _LOGGER.info(
-                "✓ GetDevParam commands sent for %d devices", len(devices_to_test)
-            )
+                "✓ SetDevParam commands completed for channel %s address %s", channel, address)
             return True
 
     async def test_group_discovery(self) -> bool:
@@ -296,7 +359,8 @@ class DaliGatewayTester:
     def _check_connection(self) -> bool:
         """Check if gateway is connected."""
         if not self.gateway or not self.is_connected:
-            _LOGGER.error("Not connected to gateway! Run connection test first.")
+            _LOGGER.error(
+                "Not connected to gateway! Run connection test first.")
             return False
         return True
 
@@ -316,7 +380,7 @@ class DaliGatewayTester:
             ("Version", self.test_version),
             ("Device Discovery", self.test_device_discovery),
             ("ReadDev", self.test_read_dev),
-            ("GetDevParam", lambda: self.test_get_dev_param(3)),
+            ("SetDevParam", self.test_set_dev_param),
             ("Group Discovery", self.test_group_discovery),
             ("Scene Discovery", self.test_scene_discovery),
             ("Reconnection", self.test_reconnection),
@@ -327,7 +391,8 @@ class DaliGatewayTester:
             try:
                 result = await test_func()
             except (DaliGatewayError, RuntimeError, asyncio.TimeoutError) as e:
-                _LOGGER.error("❌ %s test failed with exception: %s", test_name, e)
+                _LOGGER.error(
+                    "❌ %s test failed with exception: %s", test_name, e)
                 return False
             else:
                 if not result:
@@ -385,7 +450,7 @@ Examples:
             "version",
             "devices",
             "readdev",
-            "devparam",
+            "setdevparam",
             "groups",
             "scenes",
             "all",
@@ -409,13 +474,6 @@ Examples:
         "--device-limit",
         type=int,
         help="Limit number of devices for testing (default: all devices)",
-    )
-
-    parser.add_argument(
-        "--devparam-limit",
-        type=int,
-        default=3,
-        help="Limit number of devices for getDevParam test (default: 3)",
     )
 
     parser.add_argument(
@@ -449,10 +507,10 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             ["connection", "devices"],
             "ReadDev Commands",
         ),
-        "devparam": (
-            lambda: tester.test_get_dev_param(args.devparam_limit),
-            ["connection", "devices"],
-            "GetDevParam Commands",
+        "setdevparam": (
+            tester.test_set_dev_param,
+            ["connection"],
+            "SetDevParam Commands",
         ),
         "groups": (tester.test_group_discovery, ["connection"], "Group Discovery"),
         "scenes": (tester.test_scene_discovery, ["connection"], "Scene Discovery"),
@@ -466,7 +524,7 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             "version",
             "devices",
             "readdev",
-            "devparam",
+            "setdevparam",
             "groups",
             "scenes",
             "reconnection",
@@ -568,7 +626,7 @@ async def main() -> bool:
             "version": "Get gateway firmware version",
             "devices": "Discover connected DALI devices",
             "readdev": "Read device status via MQTT",
-            "devparam": "Get device parameters",
+            "setdevparam": "Set device parameters (maxBrightness)",
             "groups": "Discover DALI groups",
             "scenes": "Discover DALI scenes",
             "all": "Run complete test suite",

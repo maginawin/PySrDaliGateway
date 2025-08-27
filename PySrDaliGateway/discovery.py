@@ -84,7 +84,7 @@ class MessageCryptor:
         cmd = self.encrypt_data(combined_data, self.SR_KEY)
         message_dict = {"cmd": cmd, "type": "HA"}
         if gw_sn:
-            message_dict["gwSn"] = gw_sn
+            message_dict["snList"] = [gw_sn]
 
         _LOGGER.debug("Prepared discovery message: %s", message_dict)
         message_json = json.dumps(message_dict)

@@ -51,6 +51,7 @@ python script/test_discovery_to_connect.py --device-limit 5
 ```
 
 Available tests:
+
 - `discovery` - Discover DALI gateways on network
 - `connection` - Connect to discovered gateway
 - `version` - Get gateway firmware version
