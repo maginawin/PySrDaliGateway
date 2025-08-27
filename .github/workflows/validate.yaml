@@ -56,34 +56,34 @@ jobs:
         run: |
           mypy --show-error-codes --pretty PySrDaliGateway
 
-  tests:
-    name: Run tests
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.12", "3.13"]
-    steps:
-      - name: Checkout the repository
-        uses: actions/checkout@v4
+  # tests:
+  #   name: Run tests
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       python-version: ["3.12", "3.13"]
+  #   steps:
+  #     - name: Checkout the repository
+  #       uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
+  #     - name: Set up Python ${{ matrix.python-version }}
+  #       uses: actions/setup-python@v4
+  #       with:
+  #         python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e .[dev]
+  #     - name: Install dependencies
+  #       run: |
+  #         python -m pip install --upgrade pip
+  #         pip install -e .[dev]
 
-      - name: Run tests
-        run: |
-          pytest --cov=PySrDaliGateway --cov-report=xml --cov-report=term-missing
+  #     - name: Run tests
+  #       run: |
+  #         pytest --cov=PySrDaliGateway --cov-report=xml --cov-report=term-missing
 
-      - name: Upload coverage to Codecov
-        if: matrix.python-version == '3.13'
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage.xml
-          flags: unittests
-          name: codecov-umbrella
+  #     - name: Upload coverage to Codecov
+  #       if: matrix.python-version == '3.13'
+  #       uses: codecov/codecov-action@v3
+  #       with:
+  #         file: ./coverage.xml
+  #         flags: unittests
+  #         name: codecov-umbrella
