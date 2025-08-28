@@ -98,6 +98,19 @@ class DaliGateway:
             self._pending_requests[cmd] = {}
 
         device_key = self._get_device_key(dev_type, channel, address)
+
+        # Merge properties instead of overwriting the entire data
+        if device_key in self._pending_requests[cmd]:
+            existing_data = self._pending_requests[cmd][device_key]
+            if "property" in existing_data and "property" in data:
+                # Merge properties, avoiding duplicates by dpid
+                existing_properties = {
+                    prop["dpid"]: prop for prop in existing_data["property"]
+                }
+                new_properties = {prop["dpid"]: prop for prop in data["property"]}
+                existing_properties.update(new_properties)
+                data["property"] = list(existing_properties.values())
+
         self._pending_requests[cmd][device_key] = data
 
         if self._batch_timer.get(cmd) is None:
