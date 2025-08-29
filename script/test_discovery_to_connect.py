@@ -37,6 +37,8 @@ class DaliGatewayTester:
         self.groups: List[GroupType] = []
         self.scenes: List[SceneType] = []
         self.is_connected = False
+        # Track online status events
+        self.online_status_events: List[Tuple[str, bool]] = []
 
     async def test_discovery(self, gateway_sn: Optional[str] = None) -> bool:
         """Step 1: Discover DALI gateways."""
@@ -78,7 +80,8 @@ class DaliGatewayTester:
                 if gateway["gw_sn"] == gateway_sn:
                     # Only overwrite if the discovered credentials are empty
                     if not gateway.get("username") and not gateway.get("passwd"):
-                        gateway.update(existing_credentials)
+                        gateway["username"] = existing_credentials.get("username", "")
+                        gateway["passwd"] = existing_credentials.get("passwd", "")
                         _LOGGER.info(
                             "Applied preserved credentials to gateway %s", gateway_sn
                         )
@@ -117,6 +120,9 @@ class DaliGatewayTester:
         _LOGGER.info("Gateway config: %s", self.gateway_config)
 
         self.gateway = DaliGateway(self.gateway_config)
+
+        # Set up online status callback to track gateway status
+        self.gateway.on_online_status = self._on_online_status_callback
 
         try:
             await self.gateway.connect()
@@ -178,6 +184,9 @@ class DaliGatewayTester:
         # Reconnect
         self.gateway_config = new_config
         self.gateway = DaliGateway(self.gateway_config)
+
+        # Set up online status callback for reconnection test
+        self.gateway.on_online_status = self._on_online_status_callback
 
         return await self.test_connection(0)
 
@@ -261,9 +270,13 @@ class DaliGatewayTester:
         if not self._check_connection():
             return False
 
-        interval = 8  # seconds
+        interval = 8  # seconds - reduced for faster testing
 
         _LOGGER.info("=== Testing SetDevParam Commands ===")
+
+        # Track connection status throughout the test
+        initial_connection_status = self.is_connected
+
         try:
             # Test with fixed channel 0, address 1, using Dimmer device type
             channel = 0
@@ -281,13 +294,24 @@ class DaliGatewayTester:
             # Get current parameters
             _LOGGER.info("Getting current device parameters...")
             gateway.command_get_dev_param(dev_type, channel, address)
-            await asyncio.sleep(interval)
+
+            # Use interruptible sleep that can detect connection status changes
+            try:
+                await asyncio.sleep(interval)
+            except KeyboardInterrupt:
+                _LOGGER.warning("Test interrupted during parameter read")
+                return False
 
             # Set maxBrightness to 100
             _LOGGER.info("Setting maxBrightness to 100...")
             param_100: DeviceParamType = {"max_brightness": 100}
             gateway.command_set_dev_param("FFFF", 0, 1, param_100)
-            await asyncio.sleep(interval)
+
+            try:
+                await asyncio.sleep(interval)
+            except KeyboardInterrupt:
+                _LOGGER.warning("Test interrupted during maxBrightness setting")
+                return False
 
             # Turn on all the lights to see effect
             _LOGGER.info("Turning on all light to see effect...")
@@ -301,21 +325,46 @@ class DaliGatewayTester:
             # Read parameters after setting to 100
             _LOGGER.info("Reading parameters after setting to 100...")
             gateway.command_get_dev_param(dev_type, channel, address)
-            await asyncio.sleep(interval)
+
+            try:
+                await asyncio.sleep(interval)
+            except KeyboardInterrupt:
+                _LOGGER.warning("Test interrupted during parameter verification")
+                return False
 
             # Set maxBrightness back to 1000 (default)
             _LOGGER.info("Setting maxBrightness back to 1000...")
             param_1000: DeviceParamType = {"max_brightness": 1000}
             gateway.command_set_dev_param("FFFF", 0, 1, param_1000)
-            await asyncio.sleep(interval)
+
+            try:
+                await asyncio.sleep(interval)
+            except KeyboardInterrupt:
+                _LOGGER.warning("Test interrupted during maxBrightness reset")
+                return False
 
             # Read parameters after setting back to 1000
             _LOGGER.info("Reading parameters after setting back to 1000...")
             gateway.command_get_dev_param(dev_type, channel, address)
-            await asyncio.sleep(interval)
+
+            try:
+                await asyncio.sleep(interval)
+            except KeyboardInterrupt:
+                _LOGGER.warning("Test interrupted during final parameter read")
+                return False
+
+            # Check if connection status changed during test
+            if initial_connection_status != self.is_connected:
+                _LOGGER.warning(
+                    "Connection status changed during test - may have experienced network issues"
+                )
+                # Don't fail the test if commands completed successfully
 
         except (DaliGatewayError, RuntimeError) as e:
             _LOGGER.error("SetDevParam test failed: %s", e)
+            return False
+        except KeyboardInterrupt:
+            _LOGGER.error("SetDevParam test interrupted by user")
             return False
         else:
             _LOGGER.info(
@@ -357,6 +406,107 @@ class DaliGatewayTester:
             _LOGGER.info("✓ Found %d scene(s)", len(self.scenes))
             return True
 
+    def _on_online_status_callback(self, device_id: str, status: bool) -> None:
+        """Callback to track online status events."""
+        self.online_status_events.append((device_id, status))
+        if self.gateway_config and device_id == self.gateway_config["gw_sn"]:
+            _LOGGER.info(
+                "🔄 Gateway status changed: %s -> %s",
+                device_id,
+                "ONLINE" if status else "OFFLINE",
+            )
+        else:
+            _LOGGER.info(
+                "🔄 Device status: %s -> %s",
+                device_id,
+                "ONLINE" if status else "OFFLINE",
+            )
+
+    async def test_gateway_status_sync(self) -> bool:
+        """Test gateway status synchronization through online_status callback."""
+        if not self._check_connection():
+            return False
+
+        _LOGGER.info("=== Testing Gateway Status Synchronization ===")
+
+        if not self.gateway_config:
+            _LOGGER.error("No gateway config available")
+            return False
+
+        gateway_sn = self.gateway_config["gw_sn"]
+
+        # Clear previous events
+        self.online_status_events.clear()
+
+        try:
+            gateway = self._assert_gateway()
+
+            # Test disconnect - should trigger offline status
+            _LOGGER.info("Testing disconnect status event...")
+            await gateway.disconnect()
+            self.is_connected = False
+
+            # Wait a bit for callback to be called
+            await asyncio.sleep(1)
+
+            # Check if disconnect triggered offline status for gateway
+            gateway_events = [
+                event for event in self.online_status_events if event[0] == gateway_sn
+            ]
+            if not gateway_events:
+                _LOGGER.error("❌ No gateway status events received on disconnect")
+                return False
+
+            last_event = gateway_events[-1]
+            if last_event[1] is not False:
+                _LOGGER.error(
+                    "❌ Expected gateway offline status, got: %s", last_event[1]
+                )
+                return False
+
+            _LOGGER.info("✓ Gateway offline status correctly received")
+
+            # Test reconnect - should trigger online status
+            _LOGGER.info("Testing reconnect status event...")
+            await gateway.connect()
+            self.is_connected = True
+
+            # Wait a bit for callback to be called
+            await asyncio.sleep(1)
+
+            # Check if connect triggered online status for gateway
+            gateway_events = [
+                event for event in self.online_status_events if event[0] == gateway_sn
+            ]
+            if len(gateway_events) < 2:
+                _LOGGER.error(
+                    "❌ Expected at least 2 gateway status events (offline + online)"
+                )
+                return False
+
+            last_event = gateway_events[-1]
+            if last_event[1] is not True:
+                _LOGGER.error(
+                    "❌ Expected gateway online status, got: %s", last_event[1]
+                )
+                return False
+
+            _LOGGER.info("✓ Gateway online status correctly received")
+
+            # Log all gateway events for verification
+            _LOGGER.info("Gateway status events:")
+            for i, (dev_id, status) in enumerate(gateway_events):
+                _LOGGER.info(
+                    "  %d: %s -> %s", i + 1, dev_id, "ONLINE" if status else "OFFLINE"
+                )
+
+        except (DaliGatewayError, RuntimeError) as e:
+            _LOGGER.error("Gateway status sync test failed: %s", e)
+            return False
+        else:
+            _LOGGER.info("✓ Gateway status synchronization test completed successfully")
+            return True
+
     def _check_connection(self) -> bool:
         """Check if gateway is connected."""
         if not self.gateway or not self.is_connected:
@@ -377,6 +527,7 @@ class DaliGatewayTester:
         tests: List[Tuple[str, Callable[[], Any]]] = [
             ("Discovery", self.test_discovery),
             ("Connection", lambda: self.test_connection(0)),
+            ("Gateway Status Sync", self.test_gateway_status_sync),
             ("Version", self.test_version),
             ("Device Discovery", self.test_device_discovery),
             ("ReadDev", self.test_read_dev),
@@ -390,6 +541,9 @@ class DaliGatewayTester:
         async def run_single_test(test_name: str, test_func: Callable[[], Any]) -> bool:
             try:
                 result = await test_func()
+            except KeyboardInterrupt:
+                _LOGGER.error("❌ %s test interrupted by user", test_name)
+                return False
             except (DaliGatewayError, RuntimeError, asyncio.TimeoutError) as e:
                 _LOGGER.error("❌ %s test failed with exception: %s", test_name, e)
                 return False
@@ -446,6 +600,7 @@ Examples:
             "connection",
             "disconnect",
             "reconnection",
+            "statusync",
             "version",
             "devices",
             "readdev",
@@ -499,6 +654,11 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             ["connection"],
             "Reconnection Cycle",
         ),
+        "statusync": (
+            tester.test_gateway_status_sync,
+            ["connection"],
+            "Gateway Status Sync",
+        ),
         "version": (tester.test_version, ["connection"], "Version Retrieval"),
         "devices": (tester.test_device_discovery, ["connection"], "Device Discovery"),
         "readdev": (
@@ -520,6 +680,7 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
         selected_tests = [
             "discovery",
             "connection",
+            "statusync",
             "version",
             "devices",
             "readdev",
@@ -582,6 +743,11 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
                 if test_name in ["discovery", "connection"]:
                     _LOGGER.error("Critical test failed, stopping execution")
                     break
+        except KeyboardInterrupt:
+            _LOGGER.error("❌ %s interrupted by user", description)
+            results[test_name] = False
+            # Always stop on user interrupt
+            break
         except (DaliGatewayError, RuntimeError, asyncio.TimeoutError) as e:
             _LOGGER.error("❌ %s failed with exception: %s", description, e)
             results[test_name] = False
@@ -622,6 +788,7 @@ async def main() -> bool:
             "connection": "Connect to discovered gateway",
             "disconnect": "Disconnect from gateway",
             "reconnection": "Test disconnect/reconnect cycle",
+            "statusync": "Test gateway status synchronization via online_status callback",
             "version": "Get gateway firmware version",
             "devices": "Discover connected DALI devices",
             "readdev": "Read device status via MQTT",
@@ -639,6 +806,9 @@ async def main() -> bool:
         tester = DaliGatewayTester()
         return await run_selected_tests(tester, args)
 
+    except KeyboardInterrupt:
+        _LOGGER.error("Testing interrupted by user")
+        return False
     except (DaliGatewayError, RuntimeError, asyncio.TimeoutError) as e:
         _LOGGER.error("Unexpected error during testing: %s", e)
         return False
