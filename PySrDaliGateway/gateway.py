@@ -234,6 +234,10 @@ class DaliGateway:
             _LOGGER.debug(
                 "Gateway %s: Subscribed to MQTT topic %s", self._gw_sn, self._sub_topic
             )
+
+            # Trigger online_status callback with gateway SN as device ID and True status
+            if self._on_online_status:
+                self._on_online_status(self._gw_sn, True)
         else:
             _LOGGER.error(
                 "Gateway %s: MQTT connection failed with code %s", self._gw_sn, rc
@@ -258,6 +262,10 @@ class DaliGateway:
             )
         else:
             _LOGGER.debug("Gateway %s: MQTT disconnection completed", self._gw_sn)
+
+        # Trigger online_status callback with gateway SN as device ID and False status
+        if self._on_online_status:
+            self._on_online_status(self._gw_sn, False)
 
     def _on_message(
         self, client: paho_mqtt.Client, userdata: Any, msg: paho_mqtt.MQTTMessage
