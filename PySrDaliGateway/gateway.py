@@ -20,9 +20,11 @@ from .helper import (
     is_illuminance_sensor,
     is_light_device,
     is_motion_sensor,
+    is_panel_device,
     parse_illuminance_status,
     parse_light_status,
     parse_motion_status,
+    parse_panel_status,
 )
 from .types import (
     DaliGatewayType,
@@ -32,6 +34,7 @@ from .types import (
     IlluminanceStatus,
     LightStatus,
     MotionStatus,
+    PanelStatus,
     SceneType,
     VersionType,
 )
@@ -93,6 +96,7 @@ class DaliGateway:
         self._on_illuminance_status: Optional[
             Callable[[str, IlluminanceStatus], None]
         ] = None
+        self._on_panel_status: Optional[Callable[[str, PanelStatus], None]] = None
         self._on_energy_report: Optional[Callable[[str, float], None]] = None
         self._on_sensor_on_off: Optional[Callable[[str, bool], None]] = None
         self._on_energy: Optional[Callable[[str, Dict[str, Any]], None]] = None
@@ -219,6 +223,14 @@ class DaliGateway:
         self, callback: Callable[[str, IlluminanceStatus], None]
     ) -> None:
         self._on_illuminance_status = callback
+
+    @property
+    def on_panel_status(self) -> Optional[Callable[[str, PanelStatus], None]]:
+        return self._on_panel_status
+
+    @on_panel_status.setter
+    def on_panel_status(self, callback: Callable[[str, PanelStatus], None]) -> None:
+        self._on_panel_status = callback
 
     @property
     def on_energy_report(self) -> Optional[Callable[[str, float], None]]:
@@ -413,6 +425,10 @@ class DaliGateway:
             illuminance_statuses = parse_illuminance_status(property_list)
             for illuminance_status in illuminance_statuses:
                 self._on_illuminance_status(dev_id, illuminance_status)
+        elif dev_type and is_panel_device(dev_type) and self._on_panel_status:
+            panel_statuses = parse_panel_status(property_list)
+            for panel_status in panel_statuses:
+                self._on_panel_status(dev_id, panel_status)
         else:
             # Warn if no callback handler exists for this device type
             _LOGGER.warning(
