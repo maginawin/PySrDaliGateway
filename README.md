@@ -43,6 +43,9 @@ python script/test_discovery_to_connect.py --tests discovery connection devices
 # List available tests
 python script/test_discovery_to_connect.py --list-tests
 
+# Test device callbacks specifically
+python script/test_discovery_to_connect.py --tests callbacks
+
 # Test with specific gateway
 python script/test_discovery_to_connect.py --gateway-sn "YOUR_GATEWAY_SN"
 
@@ -57,6 +60,7 @@ Available tests:
 - `version` - Get gateway firmware version
 - `devices` - Discover connected DALI devices
 - `readdev` - Read device status via MQTT
+- `callbacks` - Test device status callbacks (light, motion, illuminance, panel)
 - `devparam` - Get device parameters
 - `groups` - Discover DALI groups
 - `scenes` - Discover DALI scenes
