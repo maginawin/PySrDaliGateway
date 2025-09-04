@@ -40,6 +40,7 @@ class DeviceType(TypedDict):
     dev_sn: str
     area_name: str
     area_id: str
+    model: str
     prop: List[DeviceProperty]
 
 

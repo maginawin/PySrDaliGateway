@@ -6,6 +6,41 @@ from .types import PanelConfig
 
 DOMAIN = "dali_center"
 
+DEVICE_MODEL_MAP = {
+    "0101": "DALI DT6 Dimmable Driver",
+    "0102": "DALI DT8 Tc Dimmable Driver",
+    "0103": "DALI DT8 RGB Dimmable Driver",
+    "0104": "DALI DT8 XY Dimmable Driver",
+    "0105": "DALI DT8 RGBW Dimmable Driver",
+    "0106": "DALI DT8 RGBWA Dimmable Driver",
+    "0201": "DALI-2 Motion Sensor",
+    "020101": "DALI-2 Motion Sensor",
+    "020102": "DALI-2 Motion Sensor",
+    "020103": "DALI-2 Motion Sensor",
+    "020104": "DALI-2 Motion Sensor",
+    "020105": "DALI-2 Motion Sensor",
+    "020106": "DALI-2 Motion Sensor",
+    "020107": "DALI-2 Motion Sensor",
+    "020108": "DALI-2 Motion Sensor",
+    "020109": "DALI-2 Motion Sensor",
+    "020110": "DALI-2 Motion Sensor",
+    "020111": "DALI-2 Motion Sensor",
+    "020112": "DALI-2 Motion Sensor",
+    "020113": "DALI-2 Motion Sensor",
+    "020114": "DALI-2 Motion Sensor",
+    "020115": "DALI-2 Motion Sensor",
+    "020116": "DALI-2 Motion Sensor",
+    "020117": "DALI-2 Motion Sensor",
+    "020118": "DALI-2 Motion Sensor",
+    "020119": "DALI-2 Motion Sensor",
+    "020120": "DALI-2 Motion Sensor",
+    "0202": "DALI-2 Illuminance Sensor",
+    "0302": "DALI-2 2-Key Push Button Panel",
+    "0304": "DALI-2 4-Key Push Button Panel",
+    "0306": "DALI-2 6-Key Push Button Panel",
+    "0308": "DALI-2 8-Key Push Button Panel",
+}
+
 DEVICE_TYPE_MAP = {
     "0101": "Dimmer",
     "0102": "CCT",
