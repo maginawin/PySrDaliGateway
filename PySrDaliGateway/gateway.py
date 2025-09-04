@@ -17,12 +17,24 @@ from .helper import (
     gen_device_unique_id,
     gen_group_unique_id,
     gen_scene_unique_id,
+    is_illuminance_sensor,
+    is_light_device,
+    is_motion_sensor,
+    is_panel_device,
+    parse_illuminance_status,
+    parse_light_status,
+    parse_motion_status,
+    parse_panel_status,
 )
 from .types import (
     DaliGatewayType,
     DeviceParamType,
     DeviceType,
     GroupType,
+    IlluminanceStatus,
+    LightStatus,
+    MotionStatus,
+    PanelStatus,
     SceneType,
     VersionType,
 )
@@ -79,7 +91,12 @@ class DaliGateway:
 
         # Callbacks
         self._on_online_status: Optional[Callable[[str, bool], None]] = None
-        self._on_device_status: Optional[Callable[[str, List[Any]], None]] = None
+        self._on_light_status: Optional[Callable[[str, LightStatus], None]] = None
+        self._on_motion_status: Optional[Callable[[str, MotionStatus], None]] = None
+        self._on_illuminance_status: Optional[
+            Callable[[str, IlluminanceStatus], None]
+        ] = None
+        self._on_panel_status: Optional[Callable[[str, PanelStatus], None]] = None
         self._on_energy_report: Optional[Callable[[str, float], None]] = None
         self._on_sensor_on_off: Optional[Callable[[str, bool], None]] = None
         self._on_energy: Optional[Callable[[str, Dict[str, Any]], None]] = None
@@ -180,12 +197,40 @@ class DaliGateway:
         self._on_online_status = callback
 
     @property
-    def on_device_status(self) -> Optional[Callable[[str, List[Any]], None]]:
-        return self._on_device_status
+    def on_light_status(self) -> Optional[Callable[[str, LightStatus], None]]:
+        return self._on_light_status
 
-    @on_device_status.setter
-    def on_device_status(self, callback: Callable[[str, List[Any]], None]) -> None:
-        self._on_device_status = callback
+    @on_light_status.setter
+    def on_light_status(self, callback: Callable[[str, LightStatus], None]) -> None:
+        self._on_light_status = callback
+
+    @property
+    def on_motion_status(self) -> Optional[Callable[[str, MotionStatus], None]]:
+        return self._on_motion_status
+
+    @on_motion_status.setter
+    def on_motion_status(self, callback: Callable[[str, MotionStatus], None]) -> None:
+        self._on_motion_status = callback
+
+    @property
+    def on_illuminance_status(
+        self,
+    ) -> Optional[Callable[[str, IlluminanceStatus], None]]:
+        return self._on_illuminance_status
+
+    @on_illuminance_status.setter
+    def on_illuminance_status(
+        self, callback: Callable[[str, IlluminanceStatus], None]
+    ) -> None:
+        self._on_illuminance_status = callback
+
+    @property
+    def on_panel_status(self) -> Optional[Callable[[str, PanelStatus], None]]:
+        return self._on_panel_status
+
+    @on_panel_status.setter
+    def on_panel_status(self, callback: Callable[[str, PanelStatus], None]) -> None:
+        self._on_panel_status = callback
 
     @property
     def on_energy_report(self) -> Optional[Callable[[str, float], None]]:
@@ -219,7 +264,6 @@ class DaliGateway:
         rc: int,
         properties: Any = None,
     ) -> None:
-        # pylint: disable=unused-argument
         self._connect_result = rc
         self._connection_event.set()
 
@@ -251,7 +295,6 @@ class DaliGateway:
         reason_code: Any,
         properties: Any = None,
     ) -> None:
-        # pylint: disable=unused-argument
         if reason_code != 0:
             _LOGGER.warning(
                 "Gateway %s: Unexpected MQTT disconnection (%s:%s) - Reason code: %s",
@@ -270,7 +313,6 @@ class DaliGateway:
     def _on_message(
         self, client: paho_mqtt.Client, userdata: Any, msg: paho_mqtt.MQTTMessage
     ) -> None:
-        # pylint: disable=unused-argument
         try:
             payload_json = json.loads(msg.payload.decode())
             _LOGGER.debug(
@@ -368,8 +410,35 @@ class DaliGateway:
             return
 
         property_list = data.get("property", [])
-        if self._on_device_status:
-            self._on_device_status(dev_id, property_list)
+        dev_type = data.get("devType")
+
+        if dev_type and is_light_device(dev_type) and self._on_light_status:
+            light_status = parse_light_status(property_list)
+            self._on_light_status(dev_id, light_status)
+        elif dev_type and is_motion_sensor(dev_type) and self._on_motion_status:
+            motion_statuses = parse_motion_status(property_list)
+            for motion_status in motion_statuses:
+                self._on_motion_status(dev_id, motion_status)
+        elif (
+            dev_type and is_illuminance_sensor(dev_type) and self._on_illuminance_status
+        ):
+            illuminance_statuses = parse_illuminance_status(property_list)
+            for illuminance_status in illuminance_statuses:
+                self._on_illuminance_status(dev_id, illuminance_status)
+        elif dev_type and is_panel_device(dev_type) and self._on_panel_status:
+            panel_statuses = parse_panel_status(property_list)
+            for panel_status in panel_statuses:
+                self._on_panel_status(dev_id, panel_status)
+        else:
+            # Warn if no callback handler exists for this device type
+            _LOGGER.warning(
+                "Gateway %s: No callback handler for device type %s (device: %s). "
+                "Property data: %s",
+                self._gw_sn,
+                dev_type,
+                dev_id,
+                property_list,
+            )
 
     def _process_write_response(self, payload: Dict[str, Any]) -> None:
         msg_id = payload.get("msgId")

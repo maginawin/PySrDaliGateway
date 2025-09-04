@@ -1,6 +1,27 @@
 """Dali Gateway Types"""
 
-from typing import List, TypedDict
+from enum import Enum
+from typing import Callable, List, Optional, Tuple, TypedDict
+
+
+class PanelEventType(Enum):
+    """Panel button event types"""
+
+    PRESS = "press"
+    HOLD = "hold"
+    DOUBLE_PRESS = "double_press"
+    ROTATE = "rotate"
+    RELEASE = "release"
+
+
+class MotionState(Enum):
+    """Motion sensor state types"""
+
+    NO_MOTION = "no_motion"
+    MOTION = "motion"
+    VACANT = "vacant"
+    OCCUPANCY = "occupancy"
+    PRESENCE = "presence"
 
 
 class DeviceProperty:
@@ -71,3 +92,50 @@ class DeviceParamType(TypedDict):
     # step_cct: int
     # temp_thresholds: int
     # runtime_thresholds: int
+
+
+class LightStatus(TypedDict):
+    """Status for lighting devices (Dimmer, CCT, RGB, RGBW, RGBWA)"""
+
+    is_on: Optional[bool]
+    brightness: Optional[int]  # 0-255
+    color_temp_kelvin: Optional[int]
+    hs_color: Optional[Tuple[float, float]]  # hue (0-360), saturation (0-100)
+    rgbw_color: Optional[Tuple[int, int, int, int]]  # r,g,b,w (0-255 each)
+    white_level: Optional[int]  # 0-255
+
+
+class PanelConfig(TypedDict):
+    """Panel configuration type definition."""
+
+    button_count: int
+    events: List[str]
+
+
+class PanelStatus(TypedDict):
+    """Status for control panels (2-Key, 4-Key, 6-Key, 8-Key)"""
+
+    event_name: str  # button_{key_no}_{event_type}
+    key_no: int  # Button number
+    event_type: PanelEventType  # press, hold, double_press, rotate, release
+    rotate_value: Optional[int]  # For rotate events (only for rotate event type)
+
+
+class MotionStatus(TypedDict):
+    """Status for motion sensor devices"""
+
+    motion_state: MotionState
+    dpid: int  # The original dpid that triggered this state
+
+
+class IlluminanceStatus(TypedDict):
+    """Status for illuminance sensor devices"""
+
+    illuminance_value: float  # Illuminance in lux
+    is_valid: bool  # Whether the value is within valid range (0-1000)
+
+
+LightStatusCallback = Callable[[LightStatus], None]
+PanelStatusCallback = Callable[[PanelStatus], None]
+MotionStatusCallback = Callable[[MotionStatus], None]
+IlluminanceStatusCallback = Callable[[IlluminanceStatus], None]

@@ -2,6 +2,8 @@
 
 from importlib import resources
 
+from .types import PanelConfig
+
 DOMAIN = "dali_center"
 
 DEVICE_TYPE_MAP = {
@@ -53,6 +55,29 @@ BUTTON_EVENTS = {
     3: "double_press",
     4: "rotate",
     5: "release",
+}
+
+PANEL_CONFIGS: dict[str, PanelConfig] = {
+    "0302": {  # 2-button panel
+        "button_count": 2,
+        "events": ["press", "hold", "double_press", "release"],
+    },
+    "0304": {  # 4-button panel
+        "button_count": 4,
+        "events": ["press", "hold", "double_press", "release"],
+    },
+    "0306": {  # 6-button panel
+        "button_count": 6,
+        "events": ["press", "hold", "double_press", "release"],
+    },
+    "0308": {  # 8-button panel
+        "button_count": 8,
+        "events": ["press", "hold", "double_press", "release"],
+    },
+    "0300": {  # rotary knob panel
+        "button_count": 1,
+        "events": ["press", "double_press", "rotate"],
+    },
 }
 
 CA_CERT_PATH = resources.files("PySrDaliGateway") / "certs" / "ca.crt"
