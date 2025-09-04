@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 import paho.mqtt.client as paho_mqtt
 from paho.mqtt.enums import CallbackAPIVersion
 
-from .const import CA_CERT_PATH
+from .const import CA_CERT_PATH, DEVICE_MODEL_MAP
 from .exceptions import DaliGatewayError
 from .helper import (
     gen_device_name,
@@ -550,6 +550,9 @@ class DaliGateway:
                     raw_device_data.get("channel", 0),
                     raw_device_data.get("address", 0),
                     self._gw_sn,
+                ),
+                model=DEVICE_MODEL_MAP.get(
+                    raw_device_data.get("devType", ""), "Unknown"
                 ),
             )
 

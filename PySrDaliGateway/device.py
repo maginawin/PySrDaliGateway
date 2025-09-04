@@ -25,6 +25,7 @@ class Device:
         self._area_id = device["area_id"]
         self._prop = device["prop"]
         self._id = device["id"]
+        self._model = device["model"]
         self._name = device["name"]
 
     def __repr__(self) -> str:
@@ -60,6 +61,10 @@ class Device:
     @property
     def color_mode(self) -> str:
         return COLOR_MODE_MAP.get(self._dev_type, "brightness")
+
+    @property
+    def model(self) -> str:
+        return self._model
 
     def _create_property(self, dpid: int, data_type: str, value: Any) -> Dict[str, Any]:
         return {"dpid": dpid, "dataType": data_type, "value": value}
