@@ -15,6 +15,11 @@ from PySrDaliGateway.types import (
     DeviceParamType,
     DeviceType,
     GroupType,
+    IlluminanceStatus,
+    LightStatus,
+    MotionStatus,
+    PanelEventType,
+    PanelStatus,
     SceneType,
 )
 
@@ -39,6 +44,11 @@ class DaliGatewayTester:
         self.is_connected = False
         # Track online status events
         self.online_status_events: List[Tuple[str, bool]] = []
+        # Track callback events
+        self.light_status_events: List[Tuple[str, LightStatus]] = []
+        self.motion_status_events: List[Tuple[str, MotionStatus]] = []
+        self.illuminance_status_events: List[Tuple[str, IlluminanceStatus]] = []
+        self.panel_status_events: List[Tuple[str, PanelStatus]] = []
 
     async def test_discovery(self, gateway_sn: Optional[str] = None) -> bool:
         """Step 1: Discover DALI gateways."""
@@ -422,6 +432,52 @@ class DaliGatewayTester:
                 "ONLINE" if status else "OFFLINE",
             )
 
+    def _on_light_status_callback(self, device_id: str, status: LightStatus) -> None:
+        """Callback to track light status events."""
+        self.light_status_events.append((device_id, status))
+        _LOGGER.info(
+            "💡 Light status: %s -> %s",
+            device_id,
+            status,
+        )
+
+    def _on_motion_status_callback(self, device_id: str, status: MotionStatus) -> None:
+        """Callback to track motion status events."""
+        self.motion_status_events.append((device_id, status))
+        _LOGGER.info(
+            "🚶 Motion status: %s -> %s",
+            device_id,
+            status,
+        )
+
+    def _on_illuminance_status_callback(
+        self, device_id: str, status: IlluminanceStatus
+    ) -> None:
+        """Callback to track illuminance status events."""
+        self.illuminance_status_events.append((device_id, status))
+        _LOGGER.info(
+            "☀️ Illuminance status: %s -> %s lux (valid: %s)",
+            device_id,
+            status.get("illuminance_value", "Unknown"),
+            status.get("is_valid", "Unknown"),
+        )
+
+    def _on_panel_status_callback(self, device_id: str, status: PanelStatus) -> None:
+        """Callback to track panel status events."""
+        self.panel_status_events.append((device_id, status))
+        event_type = status["event_type"]
+        rotate_info = ""
+        if event_type == PanelEventType.ROTATE:
+            rotate_info = f" (rotate: {status.get('rotate_value', 0)})"
+
+        _LOGGER.info(
+            "🎛️ Panel status: %s -> Key %s %s%s",
+            device_id,
+            status.get("key_no", "?"),
+            event_type.value,
+            rotate_info,
+        )
+
     async def test_gateway_status_sync(self) -> bool:
         """Test gateway status synchronization through online_status callback."""
         if not self._check_connection():
@@ -507,6 +563,165 @@ class DaliGatewayTester:
             _LOGGER.info("✓ Gateway status synchronization test completed successfully")
             return True
 
+    async def test_callback_setup(self) -> bool:
+        """Test callbacks by actively reading device status via ReadDev commands."""
+        if not self._check_connection():
+            return False
+
+        if not self.devices:
+            _LOGGER.error("No devices available! Run device discovery first.")
+            return False
+
+        _LOGGER.info("=== Testing Device Callbacks with ReadDev Commands ===")
+
+        try:
+            gateway = self._assert_gateway()
+
+            # Set up all callback handlers
+            gateway.on_light_status = self._on_light_status_callback
+            gateway.on_motion_status = self._on_motion_status_callback
+            gateway.on_illuminance_status = self._on_illuminance_status_callback
+            gateway.on_panel_status = self._on_panel_status_callback
+
+            # Clear previous events
+            self.light_status_events.clear()
+            self.motion_status_events.clear()
+            self.illuminance_status_events.clear()
+            self.panel_status_events.clear()
+
+            _LOGGER.info("✓ All device callbacks set up successfully")
+
+            # Find different device types to test
+            light_devices = [
+                d
+                for d in self.devices
+                if d["dev_type"] in ["0101", "0102", "0103", "0104", "0105"]
+            ]
+            motion_devices = [d for d in self.devices if d["dev_type"] == "0201"]
+            illuminance_devices = [d for d in self.devices if d["dev_type"] == "0301"]
+            panel_devices = [
+                d
+                for d in self.devices
+                if d["dev_type"] in ["0401", "0402", "0403", "0404"]
+            ]
+
+            _LOGGER.info(
+                "Found devices - Light: %d, Motion: %d, Illuminance: %d, Panel: %d",
+                len(light_devices),
+                len(motion_devices),
+                len(illuminance_devices),
+                len(panel_devices),
+            )
+
+            # Test light devices
+            if light_devices:
+                _LOGGER.info("Testing light device callbacks...")
+                for device in light_devices[:3]:  # Test up to 3 light devices
+                    _LOGGER.info(
+                        "Reading light device: %s (Channel %s, Address %s)",
+                        device["name"],
+                        device["channel"],
+                        device["address"],
+                    )
+                    gateway.command_read_dev(
+                        device["dev_type"], device["channel"], device["address"]
+                    )
+                    await asyncio.sleep(2)  # Wait for response
+
+            # Test motion devices
+            if motion_devices:
+                _LOGGER.info("Testing motion sensor callbacks...")
+                for device in motion_devices[:2]:  # Test up to 2 motion devices
+                    _LOGGER.info(
+                        "Reading motion device: %s (Channel %s, Address %s)",
+                        device["name"],
+                        device["channel"],
+                        device["address"],
+                    )
+                    gateway.command_read_dev(
+                        device["dev_type"], device["channel"], device["address"]
+                    )
+                    await asyncio.sleep(2)  # Wait for response
+
+            # Test illuminance devices
+            if illuminance_devices:
+                _LOGGER.info("Testing illuminance sensor callbacks...")
+                for device in illuminance_devices[
+                    :2
+                ]:  # Test up to 2 illuminance devices
+                    _LOGGER.info(
+                        "Reading illuminance device: %s (Channel %s, Address %s)",
+                        device["name"],
+                        device["channel"],
+                        device["address"],
+                    )
+                    gateway.command_read_dev(
+                        device["dev_type"], device["channel"], device["address"]
+                    )
+                    await asyncio.sleep(2)  # Wait for response
+
+            # Test panel devices
+            if panel_devices:
+                _LOGGER.info("Testing panel callbacks...")
+                for device in panel_devices[:2]:  # Test up to 2 panel devices
+                    _LOGGER.info(
+                        "Reading panel device: %s (Channel %s, Address %s)",
+                        device["name"],
+                        device["channel"],
+                        device["address"],
+                    )
+                    gateway.command_read_dev(
+                        device["dev_type"], device["channel"], device["address"]
+                    )
+                    await asyncio.sleep(2)  # Wait for response
+
+            # Wait a bit more for any delayed responses
+            _LOGGER.info("Waiting 5 seconds for final responses...")
+            await asyncio.sleep(5)
+
+            # Report on received events
+            total_events = (
+                len(self.light_status_events)
+                + len(self.motion_status_events)
+                + len(self.illuminance_status_events)
+                + len(self.panel_status_events)
+            )
+
+            _LOGGER.info("=== Callback Events Summary ===")
+            _LOGGER.info("Light status events: %d", len(self.light_status_events))
+            _LOGGER.info("Motion status events: %d", len(self.motion_status_events))
+            _LOGGER.info(
+                "Illuminance status events: %d", len(self.illuminance_status_events)
+            )
+            _LOGGER.info("Panel status events: %d", len(self.panel_status_events))
+            _LOGGER.info("Total events received: %d", total_events)
+
+            # Show some sample events
+            if self.light_status_events:
+                _LOGGER.info("Sample light event: %s", self.light_status_events[0])
+            if self.motion_status_events:
+                _LOGGER.info("Sample motion event: %s", self.motion_status_events[0])
+            if self.illuminance_status_events:
+                _LOGGER.info(
+                    "Sample illuminance event: %s", self.illuminance_status_events[0]
+                )
+            if self.panel_status_events:
+                _LOGGER.info("Sample panel event: %s", self.panel_status_events[0])
+
+            if total_events > 0:
+                _LOGGER.info(
+                    "✓ Device callbacks working - received %d events from ReadDev commands",
+                    total_events,
+                )
+            else:
+                _LOGGER.warning("⚠️ No callback events received from ReadDev commands")
+
+        except (DaliGatewayError, RuntimeError) as e:
+            _LOGGER.error("Callback test failed: %s", e)
+            return False
+
+        return True
+
     def _check_connection(self) -> bool:
         """Check if gateway is connected."""
         if not self.gateway or not self.is_connected:
@@ -534,6 +749,7 @@ class DaliGatewayTester:
             ("SetDevParam", self.test_set_dev_param),
             ("Group Discovery", self.test_group_discovery),
             ("Scene Discovery", self.test_scene_discovery),
+            ("Callbacks", self.test_callback_setup),
             ("Reconnection", self.test_reconnection),
             ("Disconnect", self.test_disconnect),
         ]
@@ -607,6 +823,7 @@ Examples:
             "setdevparam",
             "groups",
             "scenes",
+            "callbacks",
             "all",
         ],
         default=["all"],
@@ -673,6 +890,11 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
         ),
         "groups": (tester.test_group_discovery, ["connection"], "Group Discovery"),
         "scenes": (tester.test_scene_discovery, ["connection"], "Scene Discovery"),
+        "callbacks": (
+            tester.test_callback_setup,
+            ["connection", "devices"],
+            "Device Callbacks",
+        ),
     }
 
     # Determine which tests to run
@@ -687,6 +909,7 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             "setdevparam",
             "groups",
             "scenes",
+            "callbacks",
             "reconnection",
             "disconnect",
         ]
@@ -795,6 +1018,7 @@ async def main() -> bool:
             "setdevparam": "Set device parameters (maxBrightness)",
             "groups": "Discover DALI groups",
             "scenes": "Discover DALI scenes",
+            "callbacks": "Test device status callbacks (light, motion, illuminance, panel)",
             "all": "Run complete test suite",
         }
 
