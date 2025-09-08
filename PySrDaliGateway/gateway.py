@@ -314,7 +314,7 @@ class DaliGateway:
         self, client: paho_mqtt.Client, userdata: Any, msg: paho_mqtt.MQTTMessage
     ) -> None:
         try:
-            payload_json = json.loads(msg.payload.decode())
+            payload_json = json.loads(msg.payload.decode("utf-8", errors="replace"))
             _LOGGER.debug(
                 "Gateway %s: Received MQTT message on topic %s: %s",
                 self._gw_sn,
