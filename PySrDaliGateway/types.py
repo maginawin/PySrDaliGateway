@@ -1,7 +1,7 @@
 """Dali Gateway Types"""
 
 from enum import Enum
-from typing import Callable, List, Optional, Tuple, TypedDict
+from typing import Callable, List, Tuple, TypedDict
 
 
 class PanelEventType(Enum):
@@ -50,6 +50,7 @@ class GroupType(TypedDict):
     name: str
     channel: int
     area_id: str
+    devices: List[DeviceType]
 
 
 class SceneType(TypedDict):
@@ -98,12 +99,12 @@ class DeviceParamType(TypedDict):
 class LightStatus(TypedDict):
     """Status for lighting devices (Dimmer, CCT, RGB, RGBW, RGBWA)"""
 
-    is_on: Optional[bool]
-    brightness: Optional[int]  # 0-255
-    color_temp_kelvin: Optional[int]
-    hs_color: Optional[Tuple[float, float]]  # hue (0-360), saturation (0-100)
-    rgbw_color: Optional[Tuple[int, int, int, int]]  # r,g,b,w (0-255 each)
-    white_level: Optional[int]  # 0-255
+    is_on: bool | None
+    brightness: int | None  # 0-255
+    color_temp_kelvin: int | None
+    hs_color: Tuple[float, float] | None  # hue (0-360), saturation (0-100)
+    rgbw_color: Tuple[int, int, int, int] | None  # r,g,b,w (0-255 each)
+    white_level: int | None  # 0-255
 
 
 class PanelConfig(TypedDict):
@@ -119,7 +120,7 @@ class PanelStatus(TypedDict):
     event_name: str  # button_{key_no}_{event_type}
     key_no: int  # Button number
     event_type: PanelEventType  # press, hold, double_press, rotate, release
-    rotate_value: Optional[int]  # For rotate events (only for rotate event type)
+    rotate_value: int | None  # For rotate events (only for rotate event type)
 
 
 class MotionStatus(TypedDict):

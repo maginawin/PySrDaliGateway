@@ -5,7 +5,7 @@ import json
 import logging
 import ssl
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 import paho.mqtt.client as paho_mqtt
 from paho.mqtt.enums import CallbackAPIVersion
@@ -70,7 +70,7 @@ class DaliGateway:
         self._mqtt_client.enable_logger()
 
         # Connection result
-        self._connect_result: Optional[int] = None
+        self._connect_result: int | None = None
         self._connection_event = asyncio.Event()
 
         # Set up client callbacks
@@ -87,19 +87,21 @@ class DaliGateway:
         self._scenes_result: list[SceneType] = []
         self._groups_result: list[GroupType] = []
         self._devices_result: list[DeviceType] = []
-        self._version_result: Optional[VersionType] = None
+        self._version_result: VersionType | None = None
+        self._read_group_received = asyncio.Event()
+        self._read_group_result: GroupType | None = None
 
         # Callbacks
-        self._on_online_status: Optional[Callable[[str, bool], None]] = None
-        self._on_light_status: Optional[Callable[[str, LightStatus], None]] = None
-        self._on_motion_status: Optional[Callable[[str, MotionStatus], None]] = None
-        self._on_illuminance_status: Optional[
-            Callable[[str, IlluminanceStatus], None]
-        ] = None
-        self._on_panel_status: Optional[Callable[[str, PanelStatus], None]] = None
-        self._on_energy_report: Optional[Callable[[str, float], None]] = None
-        self._on_sensor_on_off: Optional[Callable[[str, bool], None]] = None
-        self._on_energy: Optional[Callable[[str, Dict[str, Any]], None]] = None
+        self._on_online_status: Callable[[str, bool], None] | None = None
+        self._on_light_status: Callable[[str, LightStatus], None] | None = None
+        self._on_motion_status: Callable[[str, MotionStatus], None] | None = None
+        self._on_illuminance_status: Callable[[str, IlluminanceStatus], None] | None = (
+            None
+        )
+        self._on_panel_status: Callable[[str, PanelStatus], None] | None = None
+        self._on_energy_report: Callable[[str, float], None] | None = None
+        self._on_sensor_on_off: Callable[[str, bool], None] | None = None
+        self._on_energy: Callable[[str, Dict[str, Any]], None] | None = None
 
         self._window_ms = 100
         self._pending_requests: Dict[str, Dict[str, Dict[str, Any]]] = {}
@@ -189,7 +191,7 @@ class DaliGateway:
         return self._name
 
     @property
-    def on_online_status(self) -> Optional[Callable[[str, bool], None]]:
+    def on_online_status(self) -> Callable[[str, bool], None] | None:
         return self._on_online_status
 
     @on_online_status.setter
@@ -197,7 +199,7 @@ class DaliGateway:
         self._on_online_status = callback
 
     @property
-    def on_light_status(self) -> Optional[Callable[[str, LightStatus], None]]:
+    def on_light_status(self) -> Callable[[str, LightStatus], None] | None:
         return self._on_light_status
 
     @on_light_status.setter
@@ -205,7 +207,7 @@ class DaliGateway:
         self._on_light_status = callback
 
     @property
-    def on_motion_status(self) -> Optional[Callable[[str, MotionStatus], None]]:
+    def on_motion_status(self) -> Callable[[str, MotionStatus], None] | None:
         return self._on_motion_status
 
     @on_motion_status.setter
@@ -215,7 +217,7 @@ class DaliGateway:
     @property
     def on_illuminance_status(
         self,
-    ) -> Optional[Callable[[str, IlluminanceStatus], None]]:
+    ) -> Callable[[str, IlluminanceStatus], None] | None:
         return self._on_illuminance_status
 
     @on_illuminance_status.setter
@@ -225,7 +227,7 @@ class DaliGateway:
         self._on_illuminance_status = callback
 
     @property
-    def on_panel_status(self) -> Optional[Callable[[str, PanelStatus], None]]:
+    def on_panel_status(self) -> Callable[[str, PanelStatus], None] | None:
         return self._on_panel_status
 
     @on_panel_status.setter
@@ -233,7 +235,7 @@ class DaliGateway:
         self._on_panel_status = callback
 
     @property
-    def on_energy_report(self) -> Optional[Callable[[str, float], None]]:
+    def on_energy_report(self) -> Callable[[str, float], None] | None:
         return self._on_energy_report
 
     @on_energy_report.setter
@@ -241,7 +243,7 @@ class DaliGateway:
         self._on_energy_report = callback
 
     @property
-    def on_sensor_on_off(self) -> Optional[Callable[[str, bool], None]]:
+    def on_sensor_on_off(self) -> Callable[[str, bool], None] | None:
         return self._on_sensor_on_off
 
     @on_sensor_on_off.setter
@@ -249,7 +251,7 @@ class DaliGateway:
         self._on_sensor_on_off = callback
 
     @property
-    def on_energy(self) -> Optional[Callable[[str, Dict[str, Any]], None]]:
+    def on_energy(self) -> Callable[[str, Dict[str, Any]], None] | None:
         return self._on_energy
 
     @on_energy.setter
@@ -341,6 +343,7 @@ class DaliGateway:
                 "getSceneRes": self._process_get_scene_response,
                 "getGroupRes": self._process_get_group_response,
                 "getVersionRes": self._process_get_version_response,
+                "readGroupRes": self._process_read_group_response,
                 "getEnergyRes": self._process_get_energy_response,
                 "setSensorOnOffRes": self._process_set_sensor_on_off_response,
                 "getSensorOnOffRes": self._process_get_sensor_on_off_response,
@@ -604,12 +607,58 @@ class DaliGateway:
                     unique_id=gen_group_unique_id(
                         group_data.get("groupId", 0), channel, self._gw_sn
                     ),
+                    devices=[],
                 )
 
                 if group not in self._groups_result:
                     self._groups_result.append(group)
 
         self._groups_received.set()
+
+    def _process_read_group_response(self, payload: Dict[str, Any]) -> None:
+        group_id = payload.get("groupId", 0)
+        group_name = payload.get("name", "")
+        channel = payload.get("channel", 0)
+        raw_devices = payload.get("data", [])
+
+        # Create DeviceType objects from raw device data
+        devices: List[DeviceType] = []
+        for device_data in raw_devices:
+            device = DeviceType(
+                unique_id=gen_device_unique_id(
+                    device_data.get("devType", ""),
+                    device_data.get("channel", 0),
+                    device_data.get("address", 0),
+                    self._gw_sn,
+                ),
+                id=device_data.get("devId", ""),
+                name=gen_device_name(
+                    device_data.get("devType", ""),
+                    device_data.get("channel", 0),
+                    device_data.get("address", 0),
+                ),
+                dev_type=device_data.get("devType", ""),
+                channel=device_data.get("channel", 0),
+                address=device_data.get("address", 0),
+                status="",
+                dev_sn="",
+                area_name="",
+                area_id="",
+                model=DEVICE_MODEL_MAP.get(device_data.get("devType", ""), "Unknown"),
+                prop=[],
+            )
+            devices.append(device)
+
+        # Create GroupType with devices
+        self._read_group_result = GroupType(
+            unique_id=gen_group_unique_id(group_id, channel, self._gw_sn),
+            id=group_id,
+            name=group_name,
+            channel=channel,
+            area_id="",
+            devices=devices,
+        )
+        self._read_group_received.set()
 
     def _process_set_sensor_on_off_response(self, payload: Dict[str, Any]) -> None:
         _LOGGER.debug(
@@ -747,7 +796,7 @@ class DaliGateway:
                 f"Failed to disconnect from gateway {self._gw_sn}: {exc}"
             ) from exc
 
-    async def get_version(self) -> Optional[VersionType]:
+    async def get_version(self) -> VersionType | None:
         self._version_received = asyncio.Event()
         payload = {
             "cmd": "getVersion",
@@ -772,6 +821,52 @@ class DaliGateway:
             self._version_result["firmware"] if self._version_result else "N/A",
         )
         return self._version_result
+
+    async def read_group(self, group_id: int, channel: int = 0) -> GroupType:
+        self._read_group_received = asyncio.Event()
+        payload: Dict[str, Any] = {
+            "cmd": "readGroup",
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+            "channel": channel,
+            "groupId": group_id,
+        }
+
+        _LOGGER.debug("Gateway %s: Sending read group command", self._gw_sn)
+        self._mqtt_client.publish(self._pub_topic, json.dumps(payload))
+
+        try:
+            await asyncio.wait_for(self._read_group_received.wait(), timeout=30.0)
+        except asyncio.TimeoutError as err:
+            _LOGGER.error(
+                "Gateway %s: Timeout waiting for read group response for group %s",
+                self._gw_sn,
+                group_id,
+            )
+            raise DaliGatewayError(
+                f"Timeout reading group {group_id} from gateway {self._gw_sn}",
+                self._gw_sn,
+            ) from err
+
+        if not self._read_group_result:
+            _LOGGER.error(
+                "Gateway %s: Failed to read group %s - group may not exist",
+                self._gw_sn,
+                group_id,
+            )
+            raise DaliGatewayError(
+                f"Failed to read group {group_id} from gateway {self._gw_sn}. Group may not exist.",
+                self._gw_sn,
+            )
+
+        _LOGGER.info(
+            "Gateway %s: Group read completed - ID: %s, Name: %s, Devices: %d",
+            self._gw_sn,
+            self._read_group_result["id"],
+            self._read_group_result["name"],
+            len(self._read_group_result["devices"]),
+        )
+        return self._read_group_result
 
     async def discover_devices(self) -> list[DeviceType]:
         self._devices_received = asyncio.Event()

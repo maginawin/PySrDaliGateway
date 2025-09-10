@@ -2,7 +2,7 @@
 
 import colorsys
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from .const import COLOR_MODE_MAP
 from .gateway import DaliGateway
@@ -77,10 +77,10 @@ class Device:
 
     def turn_on(
         self,
-        brightness: Optional[int] = None,
-        color_temp_kelvin: Optional[int] = None,
-        hs_color: Optional[Tuple[float, float]] = None,
-        rgbw_color: Optional[Tuple[float, float, float, float]] = None,
+        brightness: int | None = None,
+        color_temp_kelvin: int | None = None,
+        hs_color: Tuple[float, float] | None = None,
+        rgbw_color: Tuple[float, float, float, float] | None = None,
     ) -> None:
         properties = [self._create_property(20, "bool", True)]
 
