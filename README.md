@@ -63,5 +63,7 @@ Available tests:
 - `callbacks` - Test device status callbacks (light, motion, illuminance, panel)
 - `devparam` - Get device parameters
 - `groups` - Discover DALI groups
+- `readgroup` - Read group details with device list
 - `scenes` - Discover DALI scenes
+- `restart` - Restart gateway (WARNING: gateway will disconnect)
 - `reconnection` - Test disconnect/reconnect cycle

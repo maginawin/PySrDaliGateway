@@ -344,6 +344,7 @@ class DaliGateway:
                 "getGroupRes": self._process_get_group_response,
                 "getVersionRes": self._process_get_version_response,
                 "readGroupRes": self._process_read_group_response,
+                "restartGatewayRes": self._process_restart_gateway_response,
                 "getEnergyRes": self._process_get_energy_response,
                 "setSensorOnOffRes": self._process_set_sensor_on_off_response,
                 "getSensorOnOffRes": self._process_get_sensor_on_off_response,
@@ -685,6 +686,14 @@ class DaliGateway:
             "Gateway %s: Received getDevParamRes response, payload: %s",
             self._gw_sn,
             payload,
+        )
+
+    def _process_restart_gateway_response(self, payload: Dict[str, Any]) -> None:
+        ack = payload.get("ack", False)
+        _LOGGER.info(
+            "Gateway %s: Received restart confirmation, ack: %s. Gateway will restart shortly.",
+            self._gw_sn,
+            ack,
         )
 
     async def _setup_ssl(self) -> None:
@@ -1080,4 +1089,14 @@ class DaliGateway:
         _LOGGER.debug(
             "Gateway %s: Sending setDevParam command: %s", self._gw_sn, command
         )
+        self._mqtt_client.publish(self._pub_topic, command_json)
+
+    def restart_gateway(self) -> None:
+        """Restart the gateway."""
+        command: Dict[str, Any] = {
+            "cmd": "restartGateway",
+            "msgId": str(int(time.time())),
+        }
+        command_json = json.dumps(command)
+        _LOGGER.debug("Gateway %s: Sending restart command", self._gw_sn)
         self._mqtt_client.publish(self._pub_topic, command_json)
