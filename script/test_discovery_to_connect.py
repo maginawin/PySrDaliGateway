@@ -5,7 +5,7 @@ import argparse
 import asyncio
 import logging
 import sys
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Set, Tuple
 
 from PySrDaliGateway.discovery import DaliGatewayDiscovery
 from PySrDaliGateway.exceptions import DaliGatewayError
@@ -34,10 +34,10 @@ class DaliGatewayTester:
     """Modular tester for DALI Gateway functionality."""
 
     def __init__(self):
-        self.discovery: Optional[DaliGatewayDiscovery] = None
+        self.discovery: DaliGatewayDiscovery | None = None
         self.gateways: List[DaliGatewayType] = []
-        self.gateway: Optional[DaliGateway] = None
-        self.gateway_config: Optional[DaliGatewayType] = None
+        self.gateway: DaliGateway | None = None
+        self.gateway_config: DaliGatewayType | None = None
         self.devices: List[DeviceType] = []
         self.groups: List[GroupType] = []
         self.scenes: List[SceneType] = []
@@ -50,7 +50,7 @@ class DaliGatewayTester:
         self.illuminance_status_events: List[Tuple[str, IlluminanceStatus]] = []
         self.panel_status_events: List[Tuple[str, PanelStatus]] = []
 
-    async def test_discovery(self, gateway_sn: Optional[str] = None) -> bool:
+    async def test_discovery(self, gateway_sn: str | None = None) -> bool:
         """Step 1: Discover DALI gateways."""
         _LOGGER.info("=== Testing Gateway Discovery ===")
 
@@ -243,7 +243,7 @@ class DaliGatewayTester:
                 )
             return True
 
-    async def test_read_dev(self, device_limit: Optional[int] = None) -> bool:
+    async def test_read_dev(self, device_limit: int | None = None) -> bool:
         """Test reading device status."""
         if not self._check_connection():
             return False
@@ -418,6 +418,64 @@ class DaliGatewayTester:
             return False
         else:
             _LOGGER.info("✓ Found %d scene(s)", len(self.scenes))
+            return True
+
+    async def test_read_group(self) -> bool:
+        """Test reading group details with devices."""
+        if not self._check_connection():
+            return False
+
+        if not self.groups:
+            _LOGGER.error("No groups available! Run group discovery first.")
+            return False
+
+        _LOGGER.info("=== Testing Read Group Commands ===")
+        try:
+            gateway = self._assert_gateway()
+
+            # Test reading details for each discovered group
+            for group in self.groups[:3]:  # Test up to 3 groups
+                group_id = group["id"]
+                channel = group["channel"]
+                _LOGGER.info(
+                    "Reading group: %s (ID: %s, Channel: %s)",
+                    group["name"],
+                    group_id,
+                    channel,
+                )
+
+                # Read group details
+                group_details = await gateway.read_group(group_id, channel)
+
+                _LOGGER.info(
+                    "✓ Group details - Name: '%s', Devices: %d",
+                    group_details["name"],
+                    len(group_details["devices"]),
+                )
+
+                # Show device details
+                for i, device in enumerate(
+                    group_details["devices"][:5], 1
+                ):  # Show first 5 devices
+                    _LOGGER.info(
+                        "  Device %d: %s (Type: %s, Channel: %s, Address: %s)",
+                        i,
+                        device.get("name", "Unknown"),
+                        device["dev_type"],
+                        device["channel"],
+                        device["address"],
+                    )
+
+                if len(group_details["devices"]) > 5:
+                    _LOGGER.info(
+                        "  ... and %d more devices", len(group_details["devices"]) - 5
+                    )
+
+        except (DaliGatewayError, RuntimeError) as e:
+            _LOGGER.error("Read group test failed: %s", e)
+            return False
+        else:
+            _LOGGER.info("✓ Read group commands completed successfully")
             return True
 
     def _on_online_status_callback(self, device_id: str, status: bool) -> None:
@@ -761,6 +819,7 @@ class DaliGatewayTester:
             ("ReadDev", self.test_read_dev),
             ("SetDevParam", self.test_set_dev_param),
             ("Group Discovery", self.test_group_discovery),
+            ("Read Group", self.test_read_group),
             ("Scene Discovery", self.test_scene_discovery),
             ("Reconnection", self.test_reconnection),
             ("Disconnect", self.test_disconnect),
@@ -834,6 +893,7 @@ Examples:
             "readdev",
             "setdevparam",
             "groups",
+            "readgroup",
             "scenes",
             "callbacks",
             "all",
@@ -901,6 +961,11 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             "SetDevParam Commands",
         ),
         "groups": (tester.test_group_discovery, ["connection"], "Group Discovery"),
+        "readgroup": (
+            tester.test_read_group,
+            ["connection", "groups"],
+            "Read Group Details",
+        ),
         "scenes": (tester.test_scene_discovery, ["connection"], "Scene Discovery"),
         "callbacks": (
             tester.test_callback_setup,
@@ -921,6 +986,7 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             "readdev",
             "setdevparam",
             "groups",
+            "readgroup",
             "scenes",
             "reconnection",
             "disconnect",
@@ -1029,6 +1095,7 @@ async def main() -> bool:
             "readdev": "Read device status via MQTT",
             "setdevparam": "Set device parameters (maxBrightness)",
             "groups": "Discover DALI groups",
+            "readgroup": "Read group details with device list",
             "scenes": "Discover DALI scenes",
             "callbacks": "Test device status callbacks (light, motion, illuminance, panel)",
             "all": "Run complete test suite",

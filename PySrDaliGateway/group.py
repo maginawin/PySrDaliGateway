@@ -2,7 +2,7 @@
 
 import colorsys
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from .gateway import DaliGateway
 from .helper import gen_group_unique_id
@@ -52,9 +52,9 @@ class Group:
 
     def turn_on(
         self,
-        brightness: Optional[int] = None,
-        color_temp_kelvin: Optional[int] = None,
-        rgbw_color: Optional[Tuple[float, float, float, float]] = None,
+        brightness: int | None = None,
+        color_temp_kelvin: int | None = None,
+        rgbw_color: Tuple[float, float, float, float] | None = None,
     ) -> None:
         properties: List[Dict[str, Any]] = [self._create_property(20, "bool", True)]
 

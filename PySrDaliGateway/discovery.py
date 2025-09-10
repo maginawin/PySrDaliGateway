@@ -6,7 +6,7 @@ import ipaddress
 import json
 import logging
 import socket
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Set
 import uuid
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -77,7 +77,7 @@ class MessageCryptor:
     def random_key(self) -> str:
         return uuid.uuid4().hex[:16]
 
-    def prepare_discovery_message(self, gw_sn: Optional[str] = None) -> bytes:
+    def prepare_discovery_message(self, gw_sn: str | None = None) -> bytes:
         key = self.random_key()
         msg_enc = self.encrypt_data("discover", key)
         combined_data = key + msg_enc
@@ -200,7 +200,7 @@ class DaliGatewayDiscovery:
         self.sender = MulticastSender()
 
     async def discover_gateways(
-        self, gw_sn: Optional[str] = None
+        self, gw_sn: str | None = None
     ) -> List[DaliGatewayType]:
         _LOGGER.info(
             "Starting DALI gateway discovery%s",
@@ -354,7 +354,7 @@ class DaliGatewayDiscovery:
                 )
                 break
 
-    def _process_gateway_data(self, raw_data: Any) -> Optional[DaliGatewayType]:
+    def _process_gateway_data(self, raw_data: Any) -> DaliGatewayType | None:
         gw_sn = raw_data.get("gwSn")
         if not gw_sn:
             _LOGGER.warning("Gateway data missing required 'gwSn' field")
