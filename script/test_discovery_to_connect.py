@@ -799,23 +799,23 @@ class DaliGatewayTester:
 
         _LOGGER.info("=== Testing Gateway Restart Command ===")
         _LOGGER.warning("⚠️  Gateway will restart and disconnect after this test!")
-        
+
         try:
             gateway = self._assert_gateway()
-            
+
             _LOGGER.info("Sending restart command to gateway...")
             gateway.restart_gateway()
-            
+
             # Wait a moment for the restart response
             _LOGGER.info("Waiting for restart confirmation...")
             await asyncio.sleep(3)
-            
+
             _LOGGER.info("✓ Restart command sent successfully")
             _LOGGER.info("Gateway should be restarting now. Connection will be lost.")
-            
+
             # Mark as disconnected since gateway will restart
             self.is_connected = False
-            
+
         except (DaliGatewayError, RuntimeError) as e:
             _LOGGER.error("Restart gateway test failed: %s", e)
             return False
