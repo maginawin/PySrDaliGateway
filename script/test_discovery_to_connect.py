@@ -432,7 +432,7 @@ class DaliGatewayTester:
         _LOGGER.info("=== Testing Read Group Commands ===")
         try:
             gateway = self._assert_gateway()
-            
+
             # Test reading details for each discovered group
             for group in self.groups[:3]:  # Test up to 3 groups
                 group_id = group["id"]
@@ -443,18 +443,20 @@ class DaliGatewayTester:
                     group_id,
                     channel,
                 )
-                
+
                 # Read group details
                 group_details = await gateway.read_group(group_id, channel)
-                
+
                 _LOGGER.info(
                     "✓ Group details - Name: '%s', Devices: %d",
                     group_details["name"],
                     len(group_details["devices"]),
                 )
-                
+
                 # Show device details
-                for i, device in enumerate(group_details["devices"][:5], 1):  # Show first 5 devices
+                for i, device in enumerate(
+                    group_details["devices"][:5], 1
+                ):  # Show first 5 devices
                     _LOGGER.info(
                         "  Device %d: %s (Type: %s, Channel: %s, Address: %s)",
                         i,
@@ -463,11 +465,10 @@ class DaliGatewayTester:
                         device["channel"],
                         device["address"],
                     )
-                
+
                 if len(group_details["devices"]) > 5:
                     _LOGGER.info(
-                        "  ... and %d more devices",
-                        len(group_details["devices"]) - 5
+                        "  ... and %d more devices", len(group_details["devices"]) - 5
                     )
 
         except (DaliGatewayError, RuntimeError) as e:
@@ -960,7 +961,11 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             "SetDevParam Commands",
         ),
         "groups": (tester.test_group_discovery, ["connection"], "Group Discovery"),
-        "readgroup": (tester.test_read_group, ["connection", "groups"], "Read Group Details"),
+        "readgroup": (
+            tester.test_read_group,
+            ["connection", "groups"],
+            "Read Group Details",
+        ),
         "scenes": (tester.test_scene_discovery, ["connection"], "Scene Discovery"),
         "callbacks": (
             tester.test_callback_setup,
