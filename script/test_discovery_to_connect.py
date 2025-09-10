@@ -792,6 +792,37 @@ class DaliGatewayTester:
 
         return True
 
+    async def test_restart_gateway(self) -> bool:
+        """Test gateway restart command."""
+        if not self._check_connection():
+            return False
+
+        _LOGGER.info("=== Testing Gateway Restart Command ===")
+        _LOGGER.warning("⚠️  Gateway will restart and disconnect after this test!")
+
+        try:
+            gateway = self._assert_gateway()
+
+            _LOGGER.info("Sending restart command to gateway...")
+            gateway.restart_gateway()
+
+            # Wait a moment for the restart response
+            _LOGGER.info("Waiting for restart confirmation...")
+            await asyncio.sleep(3)
+
+            _LOGGER.info("✓ Restart command sent successfully")
+            _LOGGER.info("Gateway should be restarting now. Connection will be lost.")
+
+            # Mark as disconnected since gateway will restart
+            self.is_connected = False
+
+        except (DaliGatewayError, RuntimeError) as e:
+            _LOGGER.error("Restart gateway test failed: %s", e)
+            return False
+        else:
+            _LOGGER.info("✓ Gateway restart test completed")
+            return True
+
     def _check_connection(self) -> bool:
         """Check if gateway is connected."""
         if not self.gateway or not self.is_connected:
@@ -822,6 +853,7 @@ class DaliGatewayTester:
             ("Read Group", self.test_read_group),
             ("Scene Discovery", self.test_scene_discovery),
             ("Reconnection", self.test_reconnection),
+            ("Restart Gateway", self.test_restart_gateway),
             ("Disconnect", self.test_disconnect),
         ]
 
@@ -896,6 +928,7 @@ Examples:
             "readgroup",
             "scenes",
             "callbacks",
+            "restart",
             "all",
         ],
         default=["all"],
@@ -972,6 +1005,7 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             ["connection", "devices"],
             "Device Callbacks",
         ),
+        "restart": (tester.test_restart_gateway, ["connection"], "Gateway Restart"),
     }
 
     # Determine which tests to run
@@ -989,6 +1023,7 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             "readgroup",
             "scenes",
             "reconnection",
+            "restart",
             "disconnect",
         ]
     else:
@@ -1098,6 +1133,7 @@ async def main() -> bool:
             "readgroup": "Read group details with device list",
             "scenes": "Discover DALI scenes",
             "callbacks": "Test device status callbacks (light, motion, illuminance, panel)",
+            "restart": "Restart gateway (WARNING: gateway will disconnect)",
             "all": "Run complete test suite",
         }
 
