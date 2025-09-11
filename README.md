@@ -27,7 +27,7 @@ pip install PySrDaliGateway
 ## Requirements
 
 - Python 3.8+
-- paho-mqtt>=2.0.0
+- paho-mqtt>=1.6.0
 
 ## CLI Testing Tool
 

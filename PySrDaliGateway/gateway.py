@@ -8,7 +8,15 @@ import time
 from typing import Any, Callable, Dict, List
 
 import paho.mqtt.client as paho_mqtt
-from paho.mqtt.enums import CallbackAPIVersion
+
+# Backward compatibility with paho-mqtt < 2.0.0
+try:
+    from paho.mqtt.enums import CallbackAPIVersion
+
+    HAS_CALLBACK_API_VERSION = True
+except ImportError:
+    # paho-mqtt < 2.0.0 doesn't have CallbackAPIVersion
+    HAS_CALLBACK_API_VERSION = False
 
 from .const import CA_CERT_PATH, DEVICE_MODEL_MAP
 from .exceptions import DaliGatewayError
@@ -60,12 +68,20 @@ class DaliGateway:
         self._sub_topic = f"/{self._gw_sn}/client/reciver/"
         self._pub_topic = f"/{self._gw_sn}/server/publish/"
 
-        # MQTT client
-        self._mqtt_client = paho_mqtt.Client(
-            CallbackAPIVersion.VERSION2,
-            client_id=f"ha_dali_center_{self._gw_sn}",
-            protocol=paho_mqtt.MQTTv311,
-        )
+        # MQTT client - handle compatibility between paho-mqtt versions
+        if HAS_CALLBACK_API_VERSION:
+            # paho-mqtt >= 2.0.0
+            self._mqtt_client = paho_mqtt.Client(
+                CallbackAPIVersion.VERSION2,
+                client_id=f"ha_dali_center_{self._gw_sn}",
+                protocol=paho_mqtt.MQTTv311,
+            )
+        else:
+            # paho-mqtt < 2.0.0
+            self._mqtt_client = paho_mqtt.Client(
+                client_id=f"ha_dali_center_{self._gw_sn}",
+                protocol=paho_mqtt.MQTTv311,
+            )
 
         self._mqtt_client.enable_logger()
 
@@ -293,10 +309,20 @@ class DaliGateway:
         self,
         client: paho_mqtt.Client,
         userdata: Any,
-        disconnect_flags: Any,
-        reason_code: Any,
-        properties: Any = None,
+        *args: Any,
     ) -> None:
+        # Handle different paho-mqtt versions:
+        # v1.6.x: (client, userdata, rc)
+        # v2.0.0+: (client, userdata, disconnect_flags, reason_code, properties)
+        if HAS_CALLBACK_API_VERSION and len(args) >= 2:
+            # paho-mqtt >= 2.0.0
+            reason_code = args[1]  # disconnect_flags, reason_code, properties
+        elif len(args) >= 1:
+            # paho-mqtt < 2.0.0
+            reason_code = args[0]  # rc
+        else:
+            reason_code = 0
+            
         if reason_code != 0:
             _LOGGER.warning(
                 "Gateway %s: Unexpected MQTT disconnection (%s:%s) - Reason code: %s",
