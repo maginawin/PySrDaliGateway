@@ -322,7 +322,7 @@ class DaliGateway:
             reason_code = args[0]  # rc
         else:
             reason_code = 0
-            
+
         if reason_code != 0:
             _LOGGER.warning(
                 "Gateway %s: Unexpected MQTT disconnection (%s:%s) - Reason code: %s",
