@@ -32,6 +32,10 @@ class Group:
         return self._id
 
     @property
+    def channel(self) -> int:
+        return self._channel
+
+    @property
     def name(self) -> str:
         return self._name
 
@@ -59,7 +63,9 @@ class Group:
         properties: List[Dict[str, Any]] = [self._create_property(20, "bool", True)]
 
         if brightness:
-            properties.append(self._create_property(22, "uint16", brightness))
+            properties.append(
+                self._create_property(22, "uint16", brightness * 1000 / 255)
+            )
 
         if color_temp_kelvin:
             properties.append(self._create_property(23, "uint16", color_temp_kelvin))
