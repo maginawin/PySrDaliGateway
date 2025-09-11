@@ -59,6 +59,14 @@ class Device:
         return self._id
 
     @property
+    def channel(self) -> int:
+        return self._channel
+
+    @property
+    def address(self) -> int:
+        return self._address
+
+    @property
     def color_mode(self) -> str:
         return COLOR_MODE_MAP.get(self._dev_type, "brightness")
 
