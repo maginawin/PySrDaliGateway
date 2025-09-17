@@ -51,6 +51,13 @@ python script/test_discovery_to_connect.py --gateway-sn "YOUR_GATEWAY_SN"
 
 # Limit device operations for faster testing
 python script/test_discovery_to_connect.py --device-limit 5
+
+# Testing mode (skip discovery) - when you know gateway parameters
+python script/test_discovery_to_connect.py \
+  --direct-sn GW123456 \
+  --direct-ip 192.168.1.100 \
+  --direct-username admin \
+  --direct-passwd password123
 ```
 
 Available tests:

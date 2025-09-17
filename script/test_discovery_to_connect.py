@@ -50,6 +50,46 @@ class DaliGatewayTester:
         self.illuminance_status_events: List[Tuple[str, IlluminanceStatus]] = []
         self.panel_status_events: List[Tuple[str, PanelStatus]] = []
 
+    async def create_gateway_direct(
+        self,
+        gw_sn: str,
+        gw_ip: str,
+        port: int,
+        username: str,
+        passwd: str,
+        is_tls: bool = False,
+        name: str | None = None,
+        channel_total: List[int] | None = None,
+    ) -> bool:
+        """Create gateway configuration directly without discovery (testing mode)."""
+        _LOGGER.info("=== Testing Mode: Creating Gateway Configuration Directly ===")
+
+        gateway_config: DaliGatewayType = {
+            "gw_sn": gw_sn,
+            "gw_ip": gw_ip,
+            "port": port,
+            "username": username,
+            "passwd": passwd,
+            "is_tls": is_tls,
+            "name": name or gw_sn,
+            "channel_total": channel_total or [0],
+        }
+
+        self.gateways = [gateway_config]
+
+        _LOGGER.info("✓ Gateway configuration created directly")
+        _LOGGER.info(
+            "  Gateway: %s (%s) at %s:%s (TLS: %s)",
+            gateway_config["name"],
+            gateway_config["gw_sn"],
+            gateway_config["gw_ip"],
+            gateway_config["port"],
+            gateway_config["is_tls"],
+        )
+        _LOGGER.info("  Username: %s", gateway_config["username"])
+
+        return True
+
     async def test_discovery(self, gateway_sn: str | None = None) -> bool:
         """Step 1: Discover DALI gateways."""
         _LOGGER.info("=== Testing Gateway Discovery ===")
@@ -128,6 +168,7 @@ class DaliGatewayTester:
         self.gateway_config = {**selected_gateway}
         _LOGGER.info("Connecting to gateway '%s'...", self.gateway_config["name"])
         _LOGGER.info("Gateway config: %s", self.gateway_config)
+        _LOGGER.info({'channel_total': [0], 'gw_ip': '192.168.88.105', 'gw_sn': 'DECD0806A8D1', 'is_tls': True, 'name': 'DECD0806A8D1', 'passwd': '07E9-090A-0B15-2E6F-DECD0806A8D1', 'port': 8883, 'username': '07E9-090A-0B15-2E6F'})
 
         self.gateway = DaliGateway(self.gateway_config)
 
@@ -903,11 +944,15 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s                              # Run all tests
+  %(prog)s                              # Run all tests with discovery
   %(prog)s --tests discovery connection # Run only discovery and connection tests
   %(prog)s --list-tests                 # List available tests
   %(prog)s --device-limit 5             # Limit device operations to 5 devices
   %(prog)s --gateway-index 1            # Connect to second discovered gateway
+
+  # Testing mode (skip discovery):
+  %(prog)s --direct-sn GW123456 --direct-ip 192.168.1.100 --direct-username admin --direct-passwd password123
+  %(prog)s --direct-sn GW789012 --direct-ip 192.168.1.101 --direct-port 8883 --direct-username user --direct-passwd secret --direct-tls
         """,
     )
 
@@ -956,15 +1001,62 @@ Examples:
         "--gateway-sn", type=str, help="Specific gateway serial number to discover"
     )
 
+    # Testing mode arguments for skip discovery
+    testing_group = parser.add_argument_group(
+        "testing mode (skip discovery)",
+        "Use these arguments to bypass discovery and connect directly"
+    )
+    testing_group.add_argument(
+        "--direct-sn", type=str, help="Gateway serial number (testing mode)"
+    )
+    testing_group.add_argument(
+        "--direct-ip", type=str, help="Gateway IP address (testing mode)"
+    )
+    testing_group.add_argument(
+        "--direct-port", type=int, default=1883, help="Gateway MQTT port (testing mode, default: 1883)"
+    )
+    testing_group.add_argument(
+        "--direct-username", type=str, help="Gateway username (testing mode)"
+    )
+    testing_group.add_argument(
+        "--direct-passwd", type=str, help="Gateway password (testing mode)"
+    )
+    testing_group.add_argument(
+        "--direct-tls", action="store_true", help="Use TLS connection (testing mode)"
+    )
+    testing_group.add_argument(
+        "--direct-name", type=str, help="Gateway name (testing mode, optional)"
+    )
+
     return parser.parse_args()
 
 
 async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
     """Run selected tests with dependency management."""
 
+    # Check if using testing mode (direct configuration)
+    using_testing_mode = all([
+        args.direct_sn,
+        args.direct_ip,
+        args.direct_username,
+        args.direct_passwd,
+    ])
+
     # Available tests with dependencies
     test_registry: Dict[str, Tuple[Callable[[], Any], List[str], str]] = {
-        "discovery": (tester.test_discovery, [], "Gateway Discovery"),
+        "discovery": (
+            lambda: tester.create_gateway_direct(
+                args.direct_sn,
+                args.direct_ip,
+                args.direct_port,
+                args.direct_username,
+                args.direct_passwd,
+                args.direct_tls,
+                args.direct_name,
+            ) if using_testing_mode else tester.test_discovery(),
+            [],
+            "Gateway Discovery" if not using_testing_mode else "Gateway Direct Configuration"
+        ),
         "connection": (
             lambda: tester.test_connection(args.gateway_index),
             ["discovery"],
@@ -1140,6 +1232,18 @@ async def main() -> bool:
         for test_name, description in tests.items():
             print(f"  {test_name:<12} - {description}")
         return True
+
+    # Validate testing mode arguments
+    testing_mode_args = [args.direct_sn, args.direct_ip, args.direct_username, args.direct_passwd]
+    partial_testing_mode = any(testing_mode_args) and not all(testing_mode_args)
+
+    if partial_testing_mode:
+        _LOGGER.error("Testing mode requires all of: --direct-sn, --direct-ip, --direct-username, --direct-passwd")
+        return False
+
+    if all(testing_mode_args):
+        _LOGGER.info("Running in testing mode (skip discovery)")
+        _LOGGER.info("Gateway: %s at %s:%s", args.direct_sn, args.direct_ip, args.direct_port)
 
     try:
         tester = DaliGatewayTester()
