@@ -56,8 +56,8 @@ class NetworkManager:
 class MessageCryptor:
     """Message encryption and decryption handler"""
 
-    SR_KEY = "SR-DALI-GW-HASYS"
-    ENCRYPTION_IV = b"0000000000101111"
+    SR_KEY: str = "SR-DALI-GW-HASYS"
+    ENCRYPTION_IV: bytes = b"0000000000101111"
 
     def encrypt_data(self, data: str, key: str) -> str:
         key_bytes = key.encode("utf-8")
@@ -94,9 +94,9 @@ class MessageCryptor:
 class MulticastSender:
     """Multicast communication manager"""
 
-    MULTICAST_ADDR = "239.255.255.250"
-    SEND_PORT = 1900
-    LISTEN_PORT = 50569
+    MULTICAST_ADDR: str = "239.255.255.250"
+    SEND_PORT: int = 1900
+    LISTEN_PORT: int = 50569
 
     def create_listener_socket(self, interfaces: List[Dict[str, Any]]) -> socket.socket:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -191,10 +191,10 @@ class MulticastSender:
 class DaliGatewayDiscovery:
     """Dali Gateway Discovery"""
 
-    DISCOVERY_TIMEOUT = 180.0
-    SEND_INTERVAL = 2.0
+    DISCOVERY_TIMEOUT: float = 180.0
+    SEND_INTERVAL: float = 2.0
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.network_manager = NetworkManager()
         self.cryptor = MessageCryptor()
         self.sender = MulticastSender()
