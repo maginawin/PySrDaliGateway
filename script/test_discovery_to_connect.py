@@ -583,13 +583,17 @@ class DaliGatewayTester:
                     if light_status.get("brightness") is not None:
                         _LOGGER.info("      Brightness: %s", light_status["brightness"])
                     if light_status.get("color_temp_kelvin") is not None:
-                        _LOGGER.info("      Color Temp: %sK", light_status["color_temp_kelvin"])
+                        _LOGGER.info(
+                            "      Color Temp: %sK", light_status["color_temp_kelvin"]
+                        )
                     if light_status.get("hs_color") is not None:
                         _LOGGER.info("      HS Color: %s", light_status["hs_color"])
                     if light_status.get("rgbw_color") is not None:
                         _LOGGER.info("      RGBW Color: %s", light_status["rgbw_color"])
                     if light_status.get("white_level") is not None:
-                        _LOGGER.info("      White Level: %s", light_status["white_level"])
+                        _LOGGER.info(
+                            "      White Level: %s", light_status["white_level"]
+                        )
 
                 if len(scene_details["devices"]) > 5:
                     _LOGGER.info(
