@@ -43,6 +43,7 @@ from .types import (
     LightStatus,
     MotionStatus,
     PanelStatus,
+    SceneDeviceType,
     SceneType,
     VersionType,
 )
@@ -106,6 +107,8 @@ class DaliGateway:
         self._version_result: VersionType | None = None
         self._read_group_received = asyncio.Event()
         self._read_group_result: GroupType | None = None
+        self._read_scene_received = asyncio.Event()
+        self._read_scene_result: SceneType | None = None
 
         # Callbacks
         self._on_online_status: Callable[[str, bool], None] | None = None
@@ -370,6 +373,7 @@ class DaliGateway:
                 "getGroupRes": self._process_get_group_response,
                 "getVersionRes": self._process_get_version_response,
                 "readGroupRes": self._process_read_group_response,
+                "readSceneRes": self._process_read_scene_response,
                 "restartGatewayRes": self._process_restart_gateway_response,
                 "getEnergyRes": self._process_get_energy_response,
                 "setSensorOnOffRes": self._process_set_sensor_on_off_response,
@@ -610,6 +614,7 @@ class DaliGateway:
                     unique_id=gen_scene_unique_id(
                         scene_data.get("sceneId", 0), channel, self._gw_sn
                     ),
+                    devices=[],
                 )
 
                 if scene not in self._scenes_result:
@@ -686,6 +691,50 @@ class DaliGateway:
             devices=devices,
         )
         self._read_group_received.set()
+
+    def _process_read_scene_response(self, payload: Dict[str, Any]) -> None:
+        scene_id = payload.get("sceneId", 0)
+        scene_name = payload.get("name", "")
+        channel = payload.get("channel", 0)
+        data: Dict[str, Any] | None = payload.get("data")
+
+        if data is None:
+            _LOGGER.error(
+                "Gateway %s: Received readSceneRes with no data: %s",
+                self._gw_sn,
+                payload,
+            )
+            self._read_scene_received.set()
+            return
+
+        raw_devices: List[Dict[str, Any]] = data.get("device", [])
+
+        # Create SceneDeviceType objects from raw device data
+        devices: List[SceneDeviceType] = []
+        for device_data in raw_devices:
+            # Convert raw property data to LightStatus using parse_light_status
+            raw_properties = device_data.get("property", [])
+            light_status = parse_light_status(raw_properties)
+
+            device: SceneDeviceType = {
+                "dev_type": device_data.get("devType", ""),
+                "channel": device_data.get("channel", 0),
+                "address": device_data.get("address", 0),
+                "gw_sn_obj": device_data.get("gwSnObj", ""),
+                "property": light_status,
+            }
+            devices.append(device)
+
+        # Create SceneType with devices
+        self._read_scene_result = {
+            "unique_id": gen_scene_unique_id(scene_id, channel, self._gw_sn),
+            "id": scene_id,
+            "name": scene_name,
+            "channel": channel,
+            "area_id": "",
+            "devices": devices,
+        }
+        self._read_scene_received.set()
 
     def _process_set_sensor_on_off_response(self, payload: Dict[str, Any]) -> None:
         _LOGGER.debug(
@@ -902,6 +951,51 @@ class DaliGateway:
             len(self._read_group_result["devices"]),
         )
         return self._read_group_result
+
+    async def read_scene(self, scene_id: int, channel: int = 0) -> SceneType:
+        self._read_scene_received = asyncio.Event()
+        payload: Dict[str, Any] = {
+            "cmd": "readScene",
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+            "channel": channel,
+            "sceneId": scene_id,
+        }
+
+        _LOGGER.debug("Gateway %s: Sending read scene command", self._gw_sn)
+        self._mqtt_client.publish(self._pub_topic, json.dumps(payload))
+
+        try:
+            await asyncio.wait_for(self._read_scene_received.wait(), timeout=30.0)
+        except asyncio.TimeoutError as err:
+            _LOGGER.error(
+                "Gateway %s: Timeout waiting for read scene response for scene %s",
+                self._gw_sn,
+                scene_id,
+            )
+            raise DaliGatewayError(
+                f"Timeout reading scene {scene_id} from gateway {self._gw_sn}",
+                self._gw_sn,
+            ) from err
+
+        if not self._read_scene_result:
+            _LOGGER.error(
+                "Gateway %s: Failed to read scene %s - scene may not exist",
+                self._gw_sn,
+                scene_id,
+            )
+            raise DaliGatewayError(
+                f"Scene {scene_id} not found on gateway {self._gw_sn}", self._gw_sn
+            )
+
+        _LOGGER.info(
+            "Gateway %s: Scene read completed - ID: %s, Name: %s, Devices: %d",
+            self._gw_sn,
+            self._read_scene_result["id"],
+            self._read_scene_result["name"],
+            len(self._read_scene_result["devices"]),
+        )
+        return self._read_scene_result
 
     async def discover_devices(self) -> list[DeviceType]:
         self._devices_received = asyncio.Event()

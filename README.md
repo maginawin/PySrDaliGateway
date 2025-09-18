@@ -72,5 +72,6 @@ Available tests:
 - `groups` - Discover DALI groups
 - `readgroup` - Read group details with device list
 - `scenes` - Discover DALI scenes
+- `readscene` - Read scene details with device list and property values
 - `restart` - Restart gateway (WARNING: gateway will disconnect)
 - `reconnection` - Test disconnect/reconnect cycle

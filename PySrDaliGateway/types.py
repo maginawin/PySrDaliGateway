@@ -29,6 +29,31 @@ class DeviceProperty:
     data_type: str
 
 
+class SceneDeviceProperty(TypedDict):
+    dpid: int
+    data_type: str
+    value: int
+
+
+class LightStatus(TypedDict):
+    """Status for lighting devices (Dimmer, CCT, RGB, RGBW, RGBWA)"""
+
+    is_on: bool | None
+    brightness: int | None  # 0-255
+    color_temp_kelvin: int | None
+    hs_color: Tuple[float, float] | None  # hue (0-360), saturation (0-100)
+    rgbw_color: Tuple[int, int, int, int] | None  # r,g,b,w (0-255 each)
+    white_level: int | None  # 0-255
+
+
+class SceneDeviceType(TypedDict):
+    dev_type: str
+    channel: int
+    address: int
+    gw_sn_obj: str
+    property: LightStatus
+
+
 class DeviceType(TypedDict):
     unique_id: str
     id: str
@@ -59,6 +84,7 @@ class SceneType(TypedDict):
     name: str
     channel: int
     area_id: str
+    devices: List[SceneDeviceType]
 
 
 class DaliGatewayType(TypedDict):
@@ -94,17 +120,6 @@ class DeviceParamType(TypedDict):
     # step_cct: int
     # temp_thresholds: int
     # runtime_thresholds: int
-
-
-class LightStatus(TypedDict):
-    """Status for lighting devices (Dimmer, CCT, RGB, RGBW, RGBWA)"""
-
-    is_on: bool | None
-    brightness: int | None  # 0-255
-    color_temp_kelvin: int | None
-    hs_color: Tuple[float, float] | None  # hue (0-360), saturation (0-100)
-    rgbw_color: Tuple[int, int, int, int] | None  # r,g,b,w (0-255 each)
-    white_level: int | None  # 0-255
 
 
 class PanelConfig(TypedDict):
