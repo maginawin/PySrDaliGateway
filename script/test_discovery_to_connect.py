@@ -530,6 +530,83 @@ class DaliGatewayTester:
             _LOGGER.info("✓ Read group commands completed successfully")
             return True
 
+    async def test_read_scene(self) -> bool:
+        """Test reading scene details with devices."""
+        if not self._check_connection():
+            return False
+
+        if not self.scenes:
+            _LOGGER.error("No scenes available! Run scene discovery first.")
+            return False
+
+        _LOGGER.info("=== Testing Read Scene Commands ===")
+        try:
+            gateway = self._assert_gateway()
+
+            # Test reading details for each discovered scene
+            for scene in self.scenes[:3]:  # Test up to 3 scenes
+                scene_id = scene["id"]
+                channel = scene["channel"]
+                _LOGGER.info(
+                    "Reading scene: %s (ID: %s, Channel: %s)",
+                    scene["name"],
+                    scene_id,
+                    channel,
+                )
+
+                # Read scene details
+                scene_details = await gateway.read_scene(scene_id, channel)
+
+                _LOGGER.info(
+                    "✓ Scene details - Name: '%s', Devices: %d",
+                    scene_details["name"],
+                    len(scene_details["devices"]),
+                )
+
+                # Show device details with properties
+                for i, device in enumerate(
+                    scene_details["devices"][:5], 1
+                ):  # Show first 5 devices
+                    _LOGGER.info(
+                        "  Device %d: Type: %s, Channel: %s, Address: %s",
+                        i,
+                        device["dev_type"],
+                        device["channel"],
+                        device["address"],
+                    )
+
+                    # Show device light status
+                    light_status = device["property"]
+                    _LOGGER.info("    Light Status:")
+                    if light_status.get("is_on") is not None:
+                        _LOGGER.info("      On/Off: %s", light_status["is_on"])
+                    if light_status.get("brightness") is not None:
+                        _LOGGER.info("      Brightness: %s", light_status["brightness"])
+                    if light_status.get("color_temp_kelvin") is not None:
+                        _LOGGER.info(
+                            "      Color Temp: %sK", light_status["color_temp_kelvin"]
+                        )
+                    if light_status.get("hs_color") is not None:
+                        _LOGGER.info("      HS Color: %s", light_status["hs_color"])
+                    if light_status.get("rgbw_color") is not None:
+                        _LOGGER.info("      RGBW Color: %s", light_status["rgbw_color"])
+                    if light_status.get("white_level") is not None:
+                        _LOGGER.info(
+                            "      White Level: %s", light_status["white_level"]
+                        )
+
+                if len(scene_details["devices"]) > 5:
+                    _LOGGER.info(
+                        "  ... and %d more devices", len(scene_details["devices"]) - 5
+                    )
+
+        except (DaliGatewayError, RuntimeError) as e:
+            _LOGGER.error("Read scene test failed: %s", e)
+            return False
+        else:
+            _LOGGER.info("✓ Read scene commands completed successfully")
+            return True
+
     def _on_online_status_callback(self, device_id: str, status: bool) -> None:
         """Callback to track online status events."""
         self.online_status_events.append((device_id, status))
@@ -983,6 +1060,7 @@ Examples:
             "groups",
             "readgroup",
             "scenes",
+            "readscene",
             "callbacks",
             "restart",
             "all",
@@ -1112,6 +1190,11 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             "Read Group Details",
         ),
         "scenes": (tester.test_scene_discovery, ["connection"], "Scene Discovery"),
+        "readscene": (
+            tester.test_read_scene,
+            ["connection", "scenes"],
+            "Read Scene Details",
+        ),
         "callbacks": (
             tester.test_callback_setup,
             ["connection", "devices"],
@@ -1134,6 +1217,7 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             "groups",
             "readgroup",
             "scenes",
+            "readscene",
             "reconnection",
             "restart",
             "disconnect",
@@ -1244,6 +1328,7 @@ async def main() -> bool:
             "groups": "Discover DALI groups",
             "readgroup": "Read group details with device list",
             "scenes": "Discover DALI scenes",
+            "readscene": "Read scene details with device list and property values",
             "callbacks": "Test device status callbacks (light, motion, illuminance, panel)",
             "restart": "Restart gateway (WARNING: gateway will disconnect)",
             "all": "Run complete test suite",
