@@ -87,17 +87,6 @@ class SceneType(TypedDict):
     devices: List[SceneDeviceType]
 
 
-class DaliGatewayType(TypedDict):
-    gw_sn: str
-    gw_ip: str
-    port: int
-    name: str
-    username: str
-    passwd: str
-    is_tls: bool
-    channel_total: List[int]
-
-
 class VersionType(TypedDict):
     software: str
     firmware: str

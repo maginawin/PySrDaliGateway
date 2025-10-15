@@ -5,7 +5,7 @@ import json
 import logging
 import ssl
 import time
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Sequence
 
 import paho.mqtt.client as paho_mqtt
 
@@ -35,7 +35,6 @@ from .helper import (
     parse_panel_status,
 )
 from .types import (
-    DaliGatewayType,
     DeviceParamType,
     DeviceType,
     GroupType,
@@ -54,16 +53,29 @@ _LOGGER = logging.getLogger(__name__)
 class DaliGateway:
     """Dali Gateway"""
 
-    def __init__(self, gateway: DaliGatewayType) -> None:
+    def __init__(
+        self,
+        gw_sn: str,
+        gw_ip: str,
+        port: int,
+        username: str,
+        passwd: str,
+        *,
+        name: str | None = None,
+        channel_total: Sequence[int] | None = None,
+        is_tls: bool = False,
+    ) -> None:
         # Gateway information
-        self._gw_sn = gateway["gw_sn"]
-        self._gw_ip = gateway["gw_ip"]
-        self._port = gateway["port"]
-        self._name = gateway["name"]
-        self._username = gateway["username"]
-        self._passwd = gateway["passwd"]
-        self._channel_total = gateway["channel_total"]
-        self._is_tls = gateway.get("is_tls", False)
+        self._gw_sn = gw_sn
+        self._gw_ip = gw_ip
+        self._port = port
+        self._name = name or gw_sn
+        self._username = username
+        self._passwd = passwd
+        self._is_tls = is_tls
+        self._channel_total = (
+            [int(ch) for ch in channel_total] if channel_total else [0]
+        )
 
         # MQTT topics
         self._sub_topic = f"/{self._gw_sn}/client/reciver/"
@@ -178,19 +190,6 @@ class DaliGateway:
         self._pending_requests[cmd].clear()
         self._batch_timer.pop(cmd)
 
-    def to_dict(self) -> DaliGatewayType:
-        """Convert DaliGateway to dictionary"""
-        return {
-            "is_tls": self._is_tls,
-            "gw_sn": self._gw_sn,
-            "gw_ip": self._gw_ip,
-            "port": self._port,
-            "name": self._name,
-            "username": self._username,
-            "passwd": self._passwd,
-            "channel_total": self._channel_total,
-        }
-
     def __repr__(self) -> str:
         return (
             f"DaliGateway(gw_sn={self._gw_sn}, gw_ip={self._gw_ip}, "
@@ -200,6 +199,26 @@ class DaliGateway:
     @property
     def gw_sn(self) -> str:
         return self._gw_sn
+
+    @property
+    def gw_ip(self) -> str:
+        return self._gw_ip
+
+    @property
+    def port(self) -> int:
+        return self._port
+
+    @property
+    def username(self) -> str:
+        return self._username
+
+    @property
+    def passwd(self) -> str:
+        return self._passwd
+
+    @property
+    def channel_total(self) -> List[int]:
+        return list(self._channel_total)
 
     @property
     def is_tls(self) -> bool:

@@ -8,7 +8,6 @@ from .group import Group
 from .panel import Panel
 from .scene import Scene
 from .types import (
-    DaliGatewayType,
     DeviceType,
     GroupType,
     IlluminanceStatus,
@@ -23,7 +22,6 @@ from .types import (
 
 __all__ = [
     "DaliGateway",
-    "DaliGatewayType",
     "Device",
     "DeviceType",
     "Group",
