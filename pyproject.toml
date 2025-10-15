@@ -154,7 +154,6 @@ ignore = [
     "TC003",   # Move standard library import into a type-checking block
     "TRY003",  # Avoid specifying long messages outside the exception class
     "TRY400",  # Use logging.exception instead of logging.error
-    "UP038",   # Use `X | Y` in `isinstance` call instead of `(X, Y)`
     "W191",    # indentation contains tabs
     "Q",       # quotes (handled by formatter)
     "COM812",  # missing-trailing-comma (handled by formatter)

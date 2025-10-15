@@ -12,7 +12,7 @@ import uuid
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import psutil
 
-from .types import DaliGatewayType
+from .gateway import DaliGateway
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -199,9 +199,7 @@ class DaliGatewayDiscovery:
         self.cryptor = MessageCryptor()
         self.sender = MulticastSender()
 
-    async def discover_gateways(
-        self, gw_sn: str | None = None
-    ) -> List[DaliGatewayType]:
+    async def discover_gateways(self, gw_sn: str | None = None) -> List[DaliGateway]:
         _LOGGER.info(
             "Starting DALI gateway discovery%s",
             f" for specific gateway: {gw_sn}" if gw_sn else "",
@@ -232,10 +230,10 @@ class DaliGatewayDiscovery:
 
     async def _run_discovery(
         self, sock: socket.socket, interfaces: List[Dict[str, Any]], message: bytes
-    ) -> List[DaliGatewayType]:
+    ) -> List[DaliGateway]:
         start_time = asyncio.get_event_loop().time()
         first_gateway_found = asyncio.Event()
-        unique_gateways: List[DaliGatewayType] = []
+        unique_gateways: List[DaliGateway] = []
         seen_sns: Set[str] = set()
 
         # Sender task
@@ -299,7 +297,7 @@ class DaliGatewayDiscovery:
         sock: socket.socket,
         first_gateway_found: asyncio.Event,
         start_time: float,
-        unique_gateways: List[DaliGatewayType],
+        unique_gateways: List[DaliGateway],
         seen_sns: Set[str],
     ) -> None:
         _LOGGER.debug("Starting receiver loop, listening on socket")
@@ -322,13 +320,13 @@ class DaliGatewayDiscovery:
                     if gateway := self._process_gateway_data(raw_data):
                         _LOGGER.info(
                             "Discovered gateway: %s (%s) at %s:%s",
-                            gateway["name"],
-                            gateway["gw_sn"],
-                            gateway["gw_ip"],
-                            gateway["port"],
+                            gateway.name,
+                            gateway.gw_sn,
+                            gateway.gw_ip,
+                            gateway.port,
                         )
                         unique_gateways.append(gateway)
-                        seen_sns.add(gateway["gw_sn"])
+                        seen_sns.add(gateway.gw_sn)
                         first_gateway_found.set()
                         break
                     _LOGGER.warning("Failed to process gateway data from %s", addr)
@@ -354,7 +352,7 @@ class DaliGatewayDiscovery:
                 )
                 break
 
-    def _process_gateway_data(self, raw_data: Any) -> DaliGatewayType | None:
+    def _process_gateway_data(self, raw_data: Any) -> DaliGateway | None:
         gw_sn = raw_data.get("gwSn")
         if not gw_sn:
             _LOGGER.warning("Gateway data missing required 'gwSn' field")
@@ -388,15 +386,15 @@ class DaliGatewayDiscovery:
             if isinstance(ch, (int, str)) and str(ch).isdigit()
         ]
 
-        gateway = DaliGatewayType(
+        gateway = DaliGateway(
             gw_sn=gw_sn,
             gw_ip=raw_data.get("gwIp"),
-            port=raw_data.get("port"),
-            is_tls=raw_data.get("isMqttTls"),
-            name=gateway_name,
+            port=int(raw_data.get("port", 0)),
             username=decrypted_user,
             passwd=decrypted_pass,
+            name=gateway_name,
             channel_total=channel_total,
+            is_tls=bool(raw_data.get("isMqttTls")),
         )
 
         _LOGGER.debug("Successfully processed gateway: %s", gateway_name)

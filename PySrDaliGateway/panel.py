@@ -1,19 +1,50 @@
 """Dali Gateway Panel Device"""
 
-from typing import List
+from typing import Iterable, List
 
 from .const import PANEL_CONFIGS
-from .device import Device
-from .gateway import DaliGateway
-from .types import DeviceType
+from .device import Device, SupportsDeviceCommands
+from .types import DeviceProperty
 
 
 class Panel(Device):
     """Dali Gateway Panel Device"""
 
-    def __init__(self, gateway: DaliGateway, device: DeviceType) -> None:
-        super().__init__(gateway, device)
-        self._panel_config = PANEL_CONFIGS[self._dev_type]
+    def __init__(
+        self,
+        command_client: SupportsDeviceCommands,
+        unique_id: str,
+        dev_id: str,
+        name: str,
+        dev_type: str,
+        channel: int,
+        address: int,
+        status: str,
+        *,
+        dev_sn: str,
+        area_name: str,
+        area_id: str,
+        model: str,
+        properties: Iterable[DeviceProperty] | None = None,
+    ) -> None:
+        super().__init__(
+            command_client,
+            unique_id,
+            dev_id,
+            name,
+            dev_type,
+            channel,
+            address,
+            status,
+            dev_sn=dev_sn,
+            area_name=area_name,
+            area_id=area_id,
+            model=model,
+            properties=properties,
+        )
+        self._panel_config = PANEL_CONFIGS.get(
+            self._dev_type, {"button_count": 1, "events": ["press"]}
+        )
 
     @property
     def button_count(self) -> int:

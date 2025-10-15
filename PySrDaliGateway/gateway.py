@@ -5,7 +5,7 @@ import json
 import logging
 import ssl
 import time
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Sequence
 
 import paho.mqtt.client as paho_mqtt
 
@@ -16,10 +16,12 @@ try:
     HAS_CALLBACK_API_VERSION = True
 except ImportError:
     # paho-mqtt < 2.0.0 doesn't have CallbackAPIVersion
-    HAS_CALLBACK_API_VERSION = False
+    HAS_CALLBACK_API_VERSION = False  # pyright: ignore[reportConstantRedefinition]
 
 from .const import CA_CERT_PATH, DEVICE_MODEL_MAP
+from .device import Device
 from .exceptions import DaliGatewayError
+from .group import Group
 from .helper import (
     gen_device_name,
     gen_device_unique_id,
@@ -34,17 +36,14 @@ from .helper import (
     parse_motion_status,
     parse_panel_status,
 )
+from .scene import Scene
 from .types import (
-    DaliGatewayType,
     DeviceParamType,
-    DeviceType,
-    GroupType,
     IlluminanceStatus,
     LightStatus,
     MotionStatus,
     PanelStatus,
     SceneDeviceType,
-    SceneType,
     VersionType,
 )
 
@@ -54,16 +53,29 @@ _LOGGER = logging.getLogger(__name__)
 class DaliGateway:
     """Dali Gateway"""
 
-    def __init__(self, gateway: DaliGatewayType) -> None:
+    def __init__(
+        self,
+        gw_sn: str,
+        gw_ip: str,
+        port: int,
+        username: str,
+        passwd: str,
+        *,
+        name: str | None = None,
+        channel_total: Sequence[int] | None = None,
+        is_tls: bool = False,
+    ) -> None:
         # Gateway information
-        self._gw_sn = gateway["gw_sn"]
-        self._gw_ip = gateway["gw_ip"]
-        self._port = gateway["port"]
-        self._name = gateway["name"]
-        self._username = gateway["username"]
-        self._passwd = gateway["passwd"]
-        self._channel_total = gateway["channel_total"]
-        self._is_tls = gateway.get("is_tls", False)
+        self._gw_sn = gw_sn
+        self._gw_ip = gw_ip
+        self._port = port
+        self._name = name or gw_sn
+        self._username = username
+        self._passwd = passwd
+        self._is_tls = is_tls
+        self._channel_total = (
+            [int(ch) for ch in channel_total] if channel_total else [0]
+        )
 
         # MQTT topics
         self._sub_topic = f"/{self._gw_sn}/client/reciver/"
@@ -73,7 +85,7 @@ class DaliGateway:
         if HAS_CALLBACK_API_VERSION:
             # paho-mqtt >= 2.0.0
             self._mqtt_client = paho_mqtt.Client(
-                CallbackAPIVersion.VERSION2,
+                CallbackAPIVersion.VERSION2,  # pyright: ignore[reportPossiblyUnboundVariable]
                 client_id=f"ha_dali_center_{self._gw_sn}",
                 protocol=paho_mqtt.MQTTv311,
             )
@@ -101,14 +113,14 @@ class DaliGateway:
         self._devices_received = asyncio.Event()
         self._version_received = asyncio.Event()
 
-        self._scenes_result: list[SceneType] = []
-        self._groups_result: list[GroupType] = []
-        self._devices_result: list[DeviceType] = []
+        self._scenes_result: list[Scene] = []
+        self._groups_result: list[Group] = []
+        self._devices_result: list[Device] = []
         self._version_result: VersionType | None = None
         self._read_group_received = asyncio.Event()
-        self._read_group_result: GroupType | None = None
+        self._read_group_result: Dict[str, Any] | None = None
         self._read_scene_received = asyncio.Event()
-        self._read_scene_result: SceneType | None = None
+        self._read_scene_result: Dict[str, Any] | None = None
 
         # Callbacks
         self._on_online_status: Callable[[str, bool], None] | None = None
@@ -178,19 +190,6 @@ class DaliGateway:
         self._pending_requests[cmd].clear()
         self._batch_timer.pop(cmd)
 
-    def to_dict(self) -> DaliGatewayType:
-        """Convert DaliGateway to dictionary"""
-        return {
-            "is_tls": self._is_tls,
-            "gw_sn": self._gw_sn,
-            "gw_ip": self._gw_ip,
-            "port": self._port,
-            "name": self._name,
-            "username": self._username,
-            "passwd": self._passwd,
-            "channel_total": self._channel_total,
-        }
-
     def __repr__(self) -> str:
         return (
             f"DaliGateway(gw_sn={self._gw_sn}, gw_ip={self._gw_ip}, "
@@ -200,6 +199,26 @@ class DaliGateway:
     @property
     def gw_sn(self) -> str:
         return self._gw_sn
+
+    @property
+    def gw_ip(self) -> str:
+        return self._gw_ip
+
+    @property
+    def port(self) -> int:
+        return self._port
+
+    @property
+    def username(self) -> str:
+        return self._username
+
+    @property
+    def passwd(self) -> str:
+        return self._passwd
+
+    @property
+    def channel_total(self) -> List[int]:
+        return list(self._channel_total)
 
     @property
     def is_tls(self) -> bool:
@@ -556,94 +575,99 @@ class DaliGateway:
                 self._on_energy(dev_id, energy_data)
 
     def _process_search_device_response(self, payload_json: Dict[str, Any]) -> None:
-        for raw_device_data in payload_json["data"]:
-            device = DeviceType(
-                dev_type=raw_device_data.get("devType", ""),
-                channel=raw_device_data.get("channel", 0),
-                address=raw_device_data.get("address", 0),
-                status=raw_device_data.get("status", ""),
-                name=raw_device_data.get("name")
-                or gen_device_name(
-                    raw_device_data.get("devType", ""),
-                    raw_device_data.get("channel", 0),
-                    raw_device_data.get("address", 0),
-                ),
-                dev_sn=raw_device_data.get("devSn", ""),
-                area_name=raw_device_data.get("areaName", ""),
-                area_id=raw_device_data.get("areaId", ""),
-                prop=[],
-                id=raw_device_data.get("devId")
-                or gen_device_unique_id(
-                    raw_device_data.get("devType", ""),
-                    raw_device_data.get("channel", 0),
-                    raw_device_data.get("address", 0),
-                    self._gw_sn,
-                ),
-                unique_id=gen_device_unique_id(
-                    raw_device_data.get("devType", ""),
-                    raw_device_data.get("channel", 0),
-                    raw_device_data.get("address", 0),
-                    self._gw_sn,
-                ),
-                model=DEVICE_MODEL_MAP.get(
-                    raw_device_data.get("devType", ""), "Unknown"
-                ),
+        for raw_device_data in payload_json.get("data", []):
+            dev_type = str(raw_device_data.get("devType", ""))
+            channel = int(raw_device_data.get("channel", 0))
+            address = int(raw_device_data.get("address", 0))
+
+            unique_id = gen_device_unique_id(dev_type, channel, address, self._gw_sn)
+            dev_id = str(raw_device_data.get("devId") or unique_id)
+            name = str(
+                raw_device_data.get("name")
+                or gen_device_name(dev_type, channel, address)
             )
 
-            if device not in self._devices_result:
+            device = Device(
+                self,
+                unique_id=unique_id,
+                dev_id=dev_id,
+                name=name,
+                dev_type=dev_type,
+                channel=channel,
+                address=address,
+                status=str(raw_device_data.get("status", "")),
+                dev_sn=str(raw_device_data.get("devSn", "")),
+                area_name=str(raw_device_data.get("areaName", "")),
+                area_id=str(raw_device_data.get("areaId", "")),
+                model=DEVICE_MODEL_MAP.get(dev_type, "Unknown"),
+                properties=[],
+            )
+
+            if not any(
+                existing.unique_id == device.unique_id
+                for existing in self._devices_result
+            ):
                 self._devices_result.append(device)
 
-        search_status = payload_json["searchStatus"]
+        search_status = payload_json.get("searchStatus")
         if search_status in {0, 1}:
             self._devices_received.set()
 
     def _process_get_scene_response(self, payload_json: Dict[str, Any]) -> None:
-        for channel_scenes in payload_json["scene"]:
+        self._scenes_result.clear()
+        for channel_scenes in payload_json.get("scene", []):
             channel = channel_scenes.get("channel", 0)
 
-            if "data" not in channel_scenes:
-                continue
+            for scene_data in channel_scenes.get("data", []):
+                scene_id = int(scene_data.get("sceneId", 0))
+                name = str(scene_data.get("name", ""))
+                area_id = str(scene_data.get("areaId", ""))
 
-            self._scenes_result.clear()
-            for scene_data in channel_scenes["data"]:
-                scene = SceneType(
-                    channel=channel,
-                    id=scene_data.get("sceneId", 0),
-                    name=scene_data.get("name", ""),
-                    area_id=scene_data.get("areaId", ""),
-                    unique_id=gen_scene_unique_id(
-                        scene_data.get("sceneId", 0), channel, self._gw_sn
-                    ),
-                    devices=[],
+                if any(
+                    existing.unique_id
+                    == gen_scene_unique_id(scene_id, channel, self._gw_sn)
+                    for existing in self._scenes_result
+                ):
+                    continue
+
+                self._scenes_result.append(
+                    Scene(
+                        self,
+                        scene_id=scene_id,
+                        name=name,
+                        channel=channel,
+                        area_id=area_id,
+                    )
                 )
-
-                if scene not in self._scenes_result:
-                    self._scenes_result.append(scene)
 
         self._scenes_received.set()
 
     def _process_get_group_response(self, payload_json: Dict[str, Any]) -> None:
-        for channel_groups in payload_json["group"]:
+        self._groups_result.clear()
+        for channel_groups in payload_json.get("group", []):
             channel = channel_groups.get("channel", 0)
 
-            if "data" not in channel_groups:
-                continue
+            for group_data in channel_groups.get("data", []):
+                group_id = int(group_data.get("groupId", 0))
+                name = str(group_data.get("name", ""))
+                area_id = str(group_data.get("areaId", ""))
 
-            self._groups_result.clear()
-            for group_data in channel_groups["data"]:
-                group = GroupType(
-                    id=group_data.get("groupId", 0),
-                    name=group_data.get("name", ""),
-                    channel=channel,
-                    area_id=group_data.get("areaId", ""),
-                    unique_id=gen_group_unique_id(
-                        group_data.get("groupId", 0), channel, self._gw_sn
-                    ),
-                    devices=[],
+                if any(
+                    existing.unique_id
+                    == gen_group_unique_id(group_id, channel, self._gw_sn)
+                    for existing in self._groups_result
+                ):
+                    continue
+
+                self._groups_result.append(
+                    Group(
+                        self,
+                        group_id=group_id,
+                        name=name,
+                        channel=channel,
+                        area_id=area_id,
+                    )
                 )
-
-                if group not in self._groups_result:
-                    self._groups_result.append(group)
 
         self._groups_received.set()
 
@@ -653,43 +677,39 @@ class DaliGateway:
         channel = payload.get("channel", 0)
         raw_devices = payload.get("data", [])
 
-        # Create DeviceType objects from raw device data
-        devices: List[DeviceType] = []
+        devices: List[Dict[str, Any]] = []
         for device_data in raw_devices:
-            device = DeviceType(
-                unique_id=gen_device_unique_id(
-                    device_data.get("devType", ""),
-                    device_data.get("channel", 0),
-                    device_data.get("address", 0),
-                    self._gw_sn,
-                ),
-                id=device_data.get("devId", ""),
-                name=gen_device_name(
-                    device_data.get("devType", ""),
-                    device_data.get("channel", 0),
-                    device_data.get("address", 0),
-                ),
-                dev_type=device_data.get("devType", ""),
-                channel=device_data.get("channel", 0),
-                address=device_data.get("address", 0),
-                status="",
-                dev_sn="",
-                area_name="",
-                area_id="",
-                model=DEVICE_MODEL_MAP.get(device_data.get("devType", ""), "Unknown"),
-                prop=[],
-            )
-            devices.append(device)
+            dev_type = str(device_data.get("devType", ""))
+            channel_id = int(device_data.get("channel", 0))
+            address = int(device_data.get("address", 0))
 
-        # Create GroupType with devices
-        self._read_group_result = GroupType(
-            unique_id=gen_group_unique_id(group_id, channel, self._gw_sn),
-            id=group_id,
-            name=group_name,
-            channel=channel,
-            area_id="",
-            devices=devices,
-        )
+            devices.append(
+                {
+                    "unique_id": gen_device_unique_id(
+                        dev_type, channel_id, address, self._gw_sn
+                    ),
+                    "id": str(device_data.get("devId", "")),
+                    "name": gen_device_name(dev_type, channel_id, address),
+                    "dev_type": dev_type,
+                    "channel": channel_id,
+                    "address": address,
+                    "status": "",
+                    "dev_sn": "",
+                    "area_name": "",
+                    "area_id": "",
+                    "model": DEVICE_MODEL_MAP.get(dev_type, "Unknown"),
+                    "prop": [],
+                }
+            )
+
+        self._read_group_result = {
+            "unique_id": gen_group_unique_id(group_id, channel, self._gw_sn),
+            "id": group_id,
+            "name": group_name,
+            "channel": channel,
+            "area_id": "",
+            "devices": devices,
+        }
         self._read_group_received.set()
 
     def _process_read_scene_response(self, payload: Dict[str, Any]) -> None:
@@ -725,7 +745,6 @@ class DaliGateway:
             }
             devices.append(device)
 
-        # Create SceneType with devices
         self._read_scene_result = {
             "unique_id": gen_scene_unique_id(scene_id, channel, self._gw_sn),
             "id": scene_id,
@@ -906,7 +925,7 @@ class DaliGateway:
         )
         return self._version_result
 
-    async def read_group(self, group_id: int, channel: int = 0) -> GroupType:
+    async def read_group(self, group_id: int, channel: int = 0) -> Dict[str, Any]:
         self._read_group_received = asyncio.Event()
         payload: Dict[str, Any] = {
             "cmd": "readGroup",
@@ -952,7 +971,7 @@ class DaliGateway:
         )
         return self._read_group_result
 
-    async def read_scene(self, scene_id: int, channel: int = 0) -> SceneType:
+    async def read_scene(self, scene_id: int, channel: int = 0) -> Dict[str, Any]:
         self._read_scene_received = asyncio.Event()
         payload: Dict[str, Any] = {
             "cmd": "readScene",
@@ -997,8 +1016,9 @@ class DaliGateway:
         )
         return self._read_scene_result
 
-    async def discover_devices(self) -> list[DeviceType]:
+    async def discover_devices(self) -> list[Device]:
         self._devices_received = asyncio.Event()
+        self._devices_result.clear()
         search_payload = {
             "cmd": "searchDev",
             "searchFlag": "exited",
@@ -1023,8 +1043,9 @@ class DaliGateway:
         )
         return self._devices_result
 
-    async def discover_groups(self) -> list[GroupType]:
+    async def discover_groups(self) -> list[Group]:
         self._groups_received = asyncio.Event()
+        self._groups_result.clear()
         search_payload = {
             "cmd": "getGroup",
             "msgId": str(int(time.time())),
@@ -1049,8 +1070,9 @@ class DaliGateway:
         )
         return self._groups_result
 
-    async def discover_scenes(self) -> list[SceneType]:
+    async def discover_scenes(self) -> list[Scene]:
         self._scenes_received = asyncio.Event()
+        self._scenes_result.clear()
         search_payload = {
             "cmd": "getScene",
             "msgId": str(int(time.time())),

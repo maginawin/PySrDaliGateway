@@ -7,20 +7,19 @@ import logging
 import sys
 from typing import Any, Callable, Dict, List, Set, Tuple
 
+from PySrDaliGateway.device import Device
 from PySrDaliGateway.discovery import DaliGatewayDiscovery
 from PySrDaliGateway.exceptions import DaliGatewayError
 from PySrDaliGateway.gateway import DaliGateway
+from PySrDaliGateway.group import Group
+from PySrDaliGateway.scene import Scene
 from PySrDaliGateway.types import (
-    DaliGatewayType,
     DeviceParamType,
-    DeviceType,
-    GroupType,
     IlluminanceStatus,
     LightStatus,
     MotionStatus,
     PanelEventType,
     PanelStatus,
-    SceneType,
 )
 
 logging.basicConfig(
@@ -35,12 +34,11 @@ class DaliGatewayTester:
 
     def __init__(self):
         self.discovery: DaliGatewayDiscovery | None = None
-        self.gateways: List[DaliGatewayType] = []
+        self.gateways: List[DaliGateway] = []
         self.gateway: DaliGateway | None = None
-        self.gateway_config: DaliGatewayType | None = None
-        self.devices: List[DeviceType] = []
-        self.groups: List[GroupType] = []
-        self.scenes: List[SceneType] = []
+        self.devices: List[Device] = []
+        self.groups: List[Group] = []
+        self.scenes: List[Scene] = []
         self.is_connected = False
         # Track online status events
         self.online_status_events: List[Tuple[str, bool]] = []
@@ -49,6 +47,25 @@ class DaliGatewayTester:
         self.motion_status_events: List[Tuple[str, MotionStatus]] = []
         self.illuminance_status_events: List[Tuple[str, IlluminanceStatus]] = []
         self.panel_status_events: List[Tuple[str, PanelStatus]] = []
+
+    def _clone_gateway(
+        self,
+        gateway: DaliGateway,
+        *,
+        username: str | None = None,
+        passwd: str | None = None,
+    ) -> DaliGateway:
+        """Create a detached copy of a gateway with optional credential overrides."""
+        return DaliGateway(
+            gw_sn=gateway.gw_sn,
+            gw_ip=gateway.gw_ip,
+            port=gateway.port,
+            username=username if username is not None else gateway.username,
+            passwd=passwd if passwd is not None else gateway.passwd,
+            name=gateway.name,
+            channel_total=gateway.channel_total,
+            is_tls=gateway.is_tls,
+        )
 
     async def create_gateway_direct(
         self,
@@ -64,29 +81,29 @@ class DaliGatewayTester:
         """Create gateway configuration directly without discovery (testing mode)."""
         _LOGGER.info("=== Testing Mode: Creating Gateway Configuration Directly ===")
 
-        gateway_config: DaliGatewayType = {
-            "gw_sn": gw_sn,
-            "gw_ip": gw_ip,
-            "port": port,
-            "username": username,
-            "passwd": passwd,
-            "is_tls": is_tls,
-            "name": name or gw_sn,
-            "channel_total": channel_total or [0],
-        }
+        gateway = DaliGateway(
+            gw_sn=gw_sn,
+            gw_ip=gw_ip,
+            port=port,
+            username=username,
+            passwd=passwd,
+            name=name or gw_sn,
+            channel_total=channel_total or [0],
+            is_tls=is_tls,
+        )
 
-        self.gateways = [gateway_config]
+        self.gateways = [gateway]
 
         _LOGGER.info("✓ Gateway configuration created directly")
         _LOGGER.info(
             "  Gateway: %s (%s) at %s:%s (TLS: %s)",
-            gateway_config["name"],
-            gateway_config["gw_sn"],
-            gateway_config["gw_ip"],
-            gateway_config["port"],
-            gateway_config["is_tls"],
+            gateway.name,
+            gateway.gw_sn,
+            gateway.gw_ip,
+            gateway.port,
+            gateway.is_tls,
         )
-        _LOGGER.info("  Username: %s", gateway_config["username"])
+        _LOGGER.info("  Username: %s", gateway.username)
 
         return True
 
@@ -95,15 +112,11 @@ class DaliGatewayTester:
         _LOGGER.info("=== Testing Gateway Discovery ===")
 
         # Preserve existing credentials if we have a specific gateway_sn
-        existing_credentials = {}
-        if (
-            gateway_sn
-            and self.gateway_config
-            and self.gateway_config.get("gw_sn") == gateway_sn
-        ):
+        existing_credentials: Dict[str, str] = {}
+        if gateway_sn and self.gateway and self.gateway.gw_sn == gateway_sn:
             existing_credentials = {
-                "username": self.gateway_config.get("username", ""),
-                "passwd": self.gateway_config.get("passwd", ""),
+                "username": self.gateway.username,
+                "passwd": self.gateway.passwd,
             }
             _LOGGER.info("Preserving credentials for gateway %s", gateway_sn)
 
@@ -126,15 +139,26 @@ class DaliGatewayTester:
 
         # Apply preserved credentials if we have them and found the matching gateway
         if existing_credentials and gateway_sn:
+            updated_gateways: List[DaliGateway] = []
             for gateway in self.gateways:
-                if gateway["gw_sn"] == gateway_sn:
-                    # Only overwrite if the discovered credentials are empty
-                    if not gateway.get("username") and not gateway.get("passwd"):
-                        gateway["username"] = existing_credentials.get("username", "")
-                        gateway["passwd"] = existing_credentials.get("passwd", "")
-                        _LOGGER.info(
-                            "Applied preserved credentials to gateway %s", gateway_sn
+                if (
+                    gateway.gw_sn == gateway_sn
+                    and not gateway.username
+                    and not gateway.passwd
+                ):
+                    updated_gateways.append(
+                        self._clone_gateway(
+                            gateway,
+                            username=existing_credentials.get("username", ""),
+                            passwd=existing_credentials.get("passwd", ""),
                         )
+                    )
+                    _LOGGER.info(
+                        "Applied preserved credentials to gateway %s", gateway_sn
+                    )
+                else:
+                    updated_gateways.append(gateway)
+            self.gateways = updated_gateways
 
         _LOGGER.info("✓ Found %d gateway(s)", len(self.gateways))
 
@@ -142,10 +166,10 @@ class DaliGatewayTester:
             _LOGGER.info(
                 "  Gateway %d: %s (%s) at %s:%s",
                 i + 1,
-                gw["name"],
-                gw["gw_sn"],
-                gw["gw_ip"],
-                gw["port"],
+                gw.name,
+                gw.gw_sn,
+                gw.gw_ip,
+                gw.port,
             )
         return True
 
@@ -165,23 +189,15 @@ class DaliGatewayTester:
 
         _LOGGER.info("=== Testing Gateway Connection ===")
         selected_gateway = self.gateways[gateway_index]
-        self.gateway_config = {**selected_gateway}
-        _LOGGER.info("Connecting to gateway '%s'...", self.gateway_config["name"])
-        _LOGGER.info("Gateway config: %s", self.gateway_config)
+        self.gateway = self._clone_gateway(selected_gateway)
         _LOGGER.info(
-            {
-                "channel_total": [0],
-                "gw_ip": "192.168.88.105",
-                "gw_sn": "DECD0806A8D1",
-                "is_tls": True,
-                "name": "DECD0806A8D1",
-                "passwd": "07E9-090A-0B15-2E6F-DECD0806A8D1",
-                "port": 8883,
-                "username": "07E9-090A-0B15-2E6F",
-            }
+            "Connecting to gateway '%s' (%s) at %s:%s (TLS: %s)...",
+            self.gateway.name,
+            self.gateway.gw_sn,
+            self.gateway.gw_ip,
+            self.gateway.port,
+            self.gateway.is_tls,
         )
-
-        self.gateway = DaliGateway(self.gateway_config)
 
         # Set up online status callback to track gateway status
         self.gateway.on_online_status = self._on_online_status_callback
@@ -223,33 +239,37 @@ class DaliGatewayTester:
             return False
 
         # Re-discover to get updated gateway info
-        if not self.gateway_config:
-            _LOGGER.error("No gateway config available")
+        if not self.gateway:
+            _LOGGER.error("No gateway available")
             return False
 
         # Preserve original credentials
-        original_username = self.gateway_config.get("username", "")
-        original_passwd = self.gateway_config.get("passwd", "")
+        original_username = self.gateway.username
+        original_passwd = self.gateway.passwd
+        gateway_sn = self.gateway.gw_sn
 
         _LOGGER.info("Re-discovering gateway...")
-        if not await self.test_discovery(self.gateway_config["gw_sn"]):
+        if not await self.test_discovery(gateway_sn):
             return False
 
-        # Update credentials from original config (preserve non-empty credentials)
-        new_gateway = self.gateways[0]
-        new_config: DaliGatewayType = {
-            **new_gateway,
-            "username": original_username,
-            "passwd": original_passwd,
-        }
+        if not self.gateways:
+            _LOGGER.error("No gateways discovered during reconnection")
+            return False
 
-        # Reconnect
-        self.gateway_config = new_config
-        self.gateway = DaliGateway(self.gateway_config)
+        # Ensure preserved credentials are applied if discovery returned empty creds
+        refreshed_gateway = self.gateways[0]
+        if (
+            gateway_sn == refreshed_gateway.gw_sn
+            and not refreshed_gateway.username
+            and not refreshed_gateway.passwd
+        ):
+            self.gateways[0] = self._clone_gateway(
+                refreshed_gateway,
+                username=original_username,
+                passwd=original_passwd,
+            )
 
-        # Set up online status callback for reconnection test
-        self.gateway.on_online_status = self._on_online_status_callback
-
+        # Reconnect using the freshly discovered gateway info
         return await self.test_connection(0)
 
     async def test_version(self) -> bool:
@@ -284,13 +304,13 @@ class DaliGatewayTester:
             _LOGGER.info("✓ Found %d device(s)", len(self.devices))
 
             for device in self.devices[:5]:  # Show first 5 devices
-                model_info = device.get("model", "N/A")
+                model_info = device.model or "N/A"
                 _LOGGER.info(
                     "  Device: %s (%s) - Channel %s, Address %s, Model: %s",
-                    device["name"],
-                    device["dev_type"],
-                    device["channel"],
-                    device["address"],
+                    device.name,
+                    device.dev_type,
+                    device.channel,
+                    device.address,
                     model_info,
                 )
             return True
@@ -311,17 +331,17 @@ class DaliGatewayTester:
                 devices_to_test = self.devices[:device_limit]
 
             for device in devices_to_test:
-                model_info = device.get("model", "N/A")
+                model_info = device.model or "N/A"
                 _LOGGER.info(
                     "Reading device: %s (Channel %s, Address %s, Model: %s)",
-                    device["name"],
-                    device["channel"],
-                    device["address"],
+                    device.name,
+                    device.channel,
+                    device.address,
                     model_info,
                 )
                 gateway = self._assert_gateway()
                 gateway.command_read_dev(
-                    device["dev_type"], device["channel"], device["address"]
+                    device.dev_type, device.channel, device.address
                 )
 
         except (DaliGatewayError, RuntimeError) as e:
@@ -487,11 +507,11 @@ class DaliGatewayTester:
 
             # Test reading details for each discovered group
             for group in self.groups[:3]:  # Test up to 3 groups
-                group_id = group["id"]
-                channel = group["channel"]
+                group_id = group.group_id
+                channel = group.channel
                 _LOGGER.info(
                     "Reading group: %s (ID: %s, Channel: %s)",
-                    group["name"],
+                    group.name,
                     group_id,
                     channel,
                 )
@@ -545,11 +565,11 @@ class DaliGatewayTester:
 
             # Test reading details for each discovered scene
             for scene in self.scenes[:3]:  # Test up to 3 scenes
-                scene_id = scene["id"]
-                channel = scene["channel"]
+                scene_id = scene.scene_id
+                channel = scene.channel
                 _LOGGER.info(
                     "Reading scene: %s (ID: %s, Channel: %s)",
-                    scene["name"],
+                    scene.name,
                     scene_id,
                     channel,
                 )
@@ -610,7 +630,7 @@ class DaliGatewayTester:
     def _on_online_status_callback(self, device_id: str, status: bool) -> None:
         """Callback to track online status events."""
         self.online_status_events.append((device_id, status))
-        if self.gateway_config and device_id == self.gateway_config["gw_sn"]:
+        if self.gateway and device_id == self.gateway.gw_sn:
             _LOGGER.info(
                 "🔄 Gateway status changed: %s -> %s",
                 device_id,
@@ -676,11 +696,11 @@ class DaliGatewayTester:
 
         _LOGGER.info("=== Testing Gateway Status Synchronization ===")
 
-        if not self.gateway_config:
-            _LOGGER.error("No gateway config available")
+        if not self.gateway:
+            _LOGGER.error("No gateway available")
             return False
 
-        gateway_sn = self.gateway_config["gw_sn"]
+        gateway_sn = self.gateway.gw_sn
 
         # Clear previous events
         self.online_status_events.clear()
@@ -786,14 +806,14 @@ class DaliGatewayTester:
             light_devices = [
                 d
                 for d in self.devices
-                if d["dev_type"] in ["0101", "0102", "0103", "0104", "0105"]
+                if d.dev_type in ["0101", "0102", "0103", "0104", "0105"]
             ]
-            motion_devices = [d for d in self.devices if d["dev_type"] == "0201"]
-            illuminance_devices = [d for d in self.devices if d["dev_type"] == "0301"]
+            motion_devices = [d for d in self.devices if d.dev_type == "0201"]
+            illuminance_devices = [d for d in self.devices if d.dev_type == "0301"]
             panel_devices = [
                 d
                 for d in self.devices
-                if d["dev_type"] in ["0401", "0402", "0403", "0404"]
+                if d.dev_type in ["0401", "0402", "0403", "0404"]
             ]
 
             _LOGGER.info(
@@ -808,16 +828,16 @@ class DaliGatewayTester:
             if light_devices:
                 _LOGGER.info("Testing light device callbacks...")
                 for device in light_devices[:3]:  # Test up to 3 light devices
-                    model_info = device.get("model", "N/A")
+                    model_info = device.model or "N/A"
                     _LOGGER.info(
                         "Reading light device: %s (Channel %s, Address %s, Model: %s)",
-                        device["name"],
-                        device["channel"],
-                        device["address"],
+                        device.name,
+                        device.channel,
+                        device.address,
                         model_info,
                     )
                     gateway.command_read_dev(
-                        device["dev_type"], device["channel"], device["address"]
+                        device.dev_type, device.channel, device.address
                     )
                     await asyncio.sleep(2)  # Wait for response
 
@@ -825,16 +845,16 @@ class DaliGatewayTester:
             if motion_devices:
                 _LOGGER.info("Testing motion sensor callbacks...")
                 for device in motion_devices[:2]:  # Test up to 2 motion devices
-                    model_info = device.get("model", "N/A")
+                    model_info = device.model or "N/A"
                     _LOGGER.info(
                         "Reading motion device: %s (Channel %s, Address %s, Model: %s)",
-                        device["name"],
-                        device["channel"],
-                        device["address"],
+                        device.name,
+                        device.channel,
+                        device.address,
                         model_info,
                     )
                     gateway.command_read_dev(
-                        device["dev_type"], device["channel"], device["address"]
+                        device.dev_type, device.channel, device.address
                     )
                     await asyncio.sleep(2)  # Wait for response
 
@@ -844,16 +864,16 @@ class DaliGatewayTester:
                 for device in illuminance_devices[
                     :2
                 ]:  # Test up to 2 illuminance devices
-                    model_info = device.get("model", "N/A")
+                    model_info = device.model or "N/A"
                     _LOGGER.info(
                         "Reading illuminance device: %s (Channel %s, Address %s, Model: %s)",
-                        device["name"],
-                        device["channel"],
-                        device["address"],
+                        device.name,
+                        device.channel,
+                        device.address,
                         model_info,
                     )
                     gateway.command_read_dev(
-                        device["dev_type"], device["channel"], device["address"]
+                        device.dev_type, device.channel, device.address
                     )
                     await asyncio.sleep(2)  # Wait for response
 
@@ -861,16 +881,16 @@ class DaliGatewayTester:
             if panel_devices:
                 _LOGGER.info("Testing panel callbacks...")
                 for device in panel_devices[:2]:  # Test up to 2 panel devices
-                    model_info = device.get("model", "N/A")
+                    model_info = device.model or "N/A"
                     _LOGGER.info(
                         "Reading panel device: %s (Channel %s, Address %s, Model: %s)",
-                        device["name"],
-                        device["channel"],
-                        device["address"],
+                        device.name,
+                        device.channel,
+                        device.address,
                         model_info,
                     )
                     gateway.command_read_dev(
-                        device["dev_type"], device["channel"], device["address"]
+                        device.dev_type, device.channel, device.address
                     )
                     await asyncio.sleep(2)  # Wait for response
 
