@@ -8,14 +8,12 @@ from .group import Group
 from .panel import Panel
 from .scene import Scene
 from .types import (
-    GroupType,
     IlluminanceStatus,
     LightStatus,
     MotionState,
     MotionStatus,
     PanelEventType,
     PanelStatus,
-    SceneType,
     VersionType,
 )
 
@@ -23,7 +21,6 @@ __all__ = [
     "DaliGateway",
     "Device",
     "Group",
-    "GroupType",
     "IlluminanceStatus",
     "LightStatus",
     "MotionState",
@@ -32,7 +29,6 @@ __all__ = [
     "PanelEventType",
     "PanelStatus",
     "Scene",
-    "SceneType",
     "VersionType",
     "__version__",
 ]

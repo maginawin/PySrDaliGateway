@@ -21,6 +21,7 @@ except ImportError:
 from .const import CA_CERT_PATH, DEVICE_MODEL_MAP
 from .device import Device
 from .exceptions import DaliGatewayError
+from .group import Group
 from .helper import (
     gen_device_name,
     gen_device_unique_id,
@@ -35,15 +36,14 @@ from .helper import (
     parse_motion_status,
     parse_panel_status,
 )
+from .scene import Scene
 from .types import (
     DeviceParamType,
-    GroupType,
     IlluminanceStatus,
     LightStatus,
     MotionStatus,
     PanelStatus,
     SceneDeviceType,
-    SceneType,
     VersionType,
 )
 
@@ -113,14 +113,14 @@ class DaliGateway:
         self._devices_received = asyncio.Event()
         self._version_received = asyncio.Event()
 
-        self._scenes_result: list[SceneType] = []
-        self._groups_result: list[GroupType] = []
+        self._scenes_result: list[Scene] = []
+        self._groups_result: list[Group] = []
         self._devices_result: list[Device] = []
         self._version_result: VersionType | None = None
         self._read_group_received = asyncio.Event()
-        self._read_group_result: GroupType | None = None
+        self._read_group_result: Dict[str, Any] | None = None
         self._read_scene_received = asyncio.Event()
-        self._read_scene_result: SceneType | None = None
+        self._read_scene_result: Dict[str, Any] | None = None
 
         # Callbacks
         self._on_online_status: Callable[[str, bool], None] | None = None
@@ -614,52 +614,60 @@ class DaliGateway:
             self._devices_received.set()
 
     def _process_get_scene_response(self, payload_json: Dict[str, Any]) -> None:
-        for channel_scenes in payload_json["scene"]:
+        self._scenes_result.clear()
+        for channel_scenes in payload_json.get("scene", []):
             channel = channel_scenes.get("channel", 0)
 
-            if "data" not in channel_scenes:
-                continue
+            for scene_data in channel_scenes.get("data", []):
+                scene_id = int(scene_data.get("sceneId", 0))
+                name = str(scene_data.get("name", ""))
+                area_id = str(scene_data.get("areaId", ""))
 
-            self._scenes_result.clear()
-            for scene_data in channel_scenes["data"]:
-                scene = SceneType(
-                    channel=channel,
-                    id=scene_data.get("sceneId", 0),
-                    name=scene_data.get("name", ""),
-                    area_id=scene_data.get("areaId", ""),
-                    unique_id=gen_scene_unique_id(
-                        scene_data.get("sceneId", 0), channel, self._gw_sn
-                    ),
-                    devices=[],
+                if any(
+                    existing.unique_id
+                    == gen_scene_unique_id(scene_id, channel, self._gw_sn)
+                    for existing in self._scenes_result
+                ):
+                    continue
+
+                self._scenes_result.append(
+                    Scene(
+                        self,
+                        scene_id=scene_id,
+                        name=name,
+                        channel=channel,
+                        area_id=area_id,
+                    )
                 )
-
-                if scene not in self._scenes_result:
-                    self._scenes_result.append(scene)
 
         self._scenes_received.set()
 
     def _process_get_group_response(self, payload_json: Dict[str, Any]) -> None:
-        for channel_groups in payload_json["group"]:
+        self._groups_result.clear()
+        for channel_groups in payload_json.get("group", []):
             channel = channel_groups.get("channel", 0)
 
-            if "data" not in channel_groups:
-                continue
+            for group_data in channel_groups.get("data", []):
+                group_id = int(group_data.get("groupId", 0))
+                name = str(group_data.get("name", ""))
+                area_id = str(group_data.get("areaId", ""))
 
-            self._groups_result.clear()
-            for group_data in channel_groups["data"]:
-                group = GroupType(
-                    id=group_data.get("groupId", 0),
-                    name=group_data.get("name", ""),
-                    channel=channel,
-                    area_id=group_data.get("areaId", ""),
-                    unique_id=gen_group_unique_id(
-                        group_data.get("groupId", 0), channel, self._gw_sn
-                    ),
-                    devices=[],
+                if any(
+                    existing.unique_id
+                    == gen_group_unique_id(group_id, channel, self._gw_sn)
+                    for existing in self._groups_result
+                ):
+                    continue
+
+                self._groups_result.append(
+                    Group(
+                        self,
+                        group_id=group_id,
+                        name=name,
+                        channel=channel,
+                        area_id=area_id,
+                    )
                 )
-
-                if group not in self._groups_result:
-                    self._groups_result.append(group)
 
         self._groups_received.set()
 
@@ -694,15 +702,14 @@ class DaliGateway:
                 }
             )
 
-        # Create GroupType with devices
-        self._read_group_result = GroupType(
-            unique_id=gen_group_unique_id(group_id, channel, self._gw_sn),
-            id=group_id,
-            name=group_name,
-            channel=channel,
-            area_id="",
-            devices=devices,
-        )
+        self._read_group_result = {
+            "unique_id": gen_group_unique_id(group_id, channel, self._gw_sn),
+            "id": group_id,
+            "name": group_name,
+            "channel": channel,
+            "area_id": "",
+            "devices": devices,
+        }
         self._read_group_received.set()
 
     def _process_read_scene_response(self, payload: Dict[str, Any]) -> None:
@@ -738,7 +745,6 @@ class DaliGateway:
             }
             devices.append(device)
 
-        # Create SceneType with devices
         self._read_scene_result = {
             "unique_id": gen_scene_unique_id(scene_id, channel, self._gw_sn),
             "id": scene_id,
@@ -919,7 +925,7 @@ class DaliGateway:
         )
         return self._version_result
 
-    async def read_group(self, group_id: int, channel: int = 0) -> GroupType:
+    async def read_group(self, group_id: int, channel: int = 0) -> Dict[str, Any]:
         self._read_group_received = asyncio.Event()
         payload: Dict[str, Any] = {
             "cmd": "readGroup",
@@ -965,7 +971,7 @@ class DaliGateway:
         )
         return self._read_group_result
 
-    async def read_scene(self, scene_id: int, channel: int = 0) -> SceneType:
+    async def read_scene(self, scene_id: int, channel: int = 0) -> Dict[str, Any]:
         self._read_scene_received = asyncio.Event()
         payload: Dict[str, Any] = {
             "cmd": "readScene",
@@ -1037,8 +1043,9 @@ class DaliGateway:
         )
         return self._devices_result
 
-    async def discover_groups(self) -> list[GroupType]:
+    async def discover_groups(self) -> list[Group]:
         self._groups_received = asyncio.Event()
+        self._groups_result.clear()
         search_payload = {
             "cmd": "getGroup",
             "msgId": str(int(time.time())),
@@ -1063,8 +1070,9 @@ class DaliGateway:
         )
         return self._groups_result
 
-    async def discover_scenes(self) -> list[SceneType]:
+    async def discover_scenes(self) -> list[Scene]:
         self._scenes_received = asyncio.Event()
+        self._scenes_result.clear()
         search_payload = {
             "cmd": "getScene",
             "msgId": str(int(time.time())),

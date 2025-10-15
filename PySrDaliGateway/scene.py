@@ -1,19 +1,35 @@
 """Dali Gateway Scene"""
 
-from .gateway import DaliGateway
+from typing import Protocol
+
 from .helper import gen_scene_unique_id
-from .types import SceneType
+
+
+class SupportsSceneCommands(Protocol):
+    """Protocol exposing the minimum gateway interface required by Scene."""
+
+    @property
+    def gw_sn(self) -> str: ...
+
+    def command_write_scene(self, scene_id: int, channel: int) -> None: ...
 
 
 class Scene:
     """Dali Gateway Scene"""
 
-    def __init__(self, gateway: DaliGateway, scene: SceneType) -> None:
-        self._gateway = gateway
-        self._id = scene["id"]
-        self._name = scene["name"]
-        self._channel = scene["channel"]
-        self._area_id = scene["area_id"]
+    def __init__(
+        self,
+        command_client: SupportsSceneCommands,
+        scene_id: int,
+        name: str,
+        channel: int,
+        area_id: str,
+    ) -> None:
+        self._client = command_client
+        self._id = scene_id
+        self._name = name
+        self._channel = channel
+        self._area_id = area_id
 
     def __str__(self) -> str:
         return f"{self._name} (Channel {self._channel}, Scene {self._id})"
@@ -23,7 +39,7 @@ class Scene:
 
     @property
     def unique_id(self) -> str:
-        return gen_scene_unique_id(self._id, self._channel, self._gateway.gw_sn)
+        return gen_scene_unique_id(self._id, self._channel, self._client.gw_sn)
 
     @property
     def scene_id(self) -> int:
@@ -35,7 +51,15 @@ class Scene:
 
     @property
     def gw_sn(self) -> str:
-        return self._gateway.gw_sn
+        return self._client.gw_sn
+
+    @property
+    def channel(self) -> int:
+        return self._channel
+
+    @property
+    def area_id(self) -> str:
+        return self._area_id
 
     def activate(self) -> None:
-        self._gateway.command_write_scene(self._id, self._channel)
+        self._client.command_write_scene(self._id, self._channel)

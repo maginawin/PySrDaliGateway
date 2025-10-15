@@ -2,24 +2,40 @@
 
 import colorsys
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Protocol, Tuple
 
-from .gateway import DaliGateway
 from .helper import gen_group_unique_id
-from .types import GroupType
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class SupportsGroupCommands(Protocol):
+    """Protocol exposing the minimum gateway interface required by Group."""
+
+    @property
+    def gw_sn(self) -> str: ...
+
+    def command_write_group(
+        self, group_id: int, channel: int, properties: List[Dict[str, Any]]
+    ) -> None: ...
 
 
 class Group:
     """Dali Gateway Group"""
 
-    def __init__(self, gateway: DaliGateway, group: GroupType) -> None:
-        self._gateway = gateway
-        self._id = group["id"]
-        self._name = group["name"]
-        self._channel = group["channel"]
-        self._area_id = group["area_id"]
+    def __init__(
+        self,
+        command_client: SupportsGroupCommands,
+        group_id: int,
+        name: str,
+        channel: int,
+        area_id: str,
+    ) -> None:
+        self._client = command_client
+        self._id = group_id
+        self._name = name
+        self._channel = channel
+        self._area_id = area_id
 
     def __str__(self) -> str:
         return f"{self._name} (Channel {self._channel}, Group {self._id})"
@@ -41,18 +57,22 @@ class Group:
 
     @property
     def unique_id(self) -> str:
-        return gen_group_unique_id(self._id, self._channel, self._gateway.gw_sn)
+        return gen_group_unique_id(self._id, self._channel, self._client.gw_sn)
 
     @property
     def gw_sn(self) -> str:
-        return self._gateway.gw_sn
+        return self._client.gw_sn
+
+    @property
+    def area_id(self) -> str:
+        return self._area_id
 
     def _create_property(self, dpid: int, data_type: str, value: Any) -> Dict[str, Any]:
         return {"dpid": dpid, "dataType": data_type, "value": value}
 
     def _send_properties(self, properties: List[Dict[str, Any]]) -> None:
         for prop in properties:
-            self._gateway.command_write_group(self._id, self._channel, [prop])
+            self._client.command_write_group(self._id, self._channel, [prop])
 
     def turn_on(
         self,

@@ -11,15 +11,15 @@ from PySrDaliGateway.device import Device
 from PySrDaliGateway.discovery import DaliGatewayDiscovery
 from PySrDaliGateway.exceptions import DaliGatewayError
 from PySrDaliGateway.gateway import DaliGateway
+from PySrDaliGateway.group import Group
+from PySrDaliGateway.scene import Scene
 from PySrDaliGateway.types import (
     DeviceParamType,
-    GroupType,
     IlluminanceStatus,
     LightStatus,
     MotionStatus,
     PanelEventType,
     PanelStatus,
-    SceneType,
 )
 
 logging.basicConfig(
@@ -37,8 +37,8 @@ class DaliGatewayTester:
         self.gateways: List[DaliGateway] = []
         self.gateway: DaliGateway | None = None
         self.devices: List[Device] = []
-        self.groups: List[GroupType] = []
-        self.scenes: List[SceneType] = []
+        self.groups: List[Group] = []
+        self.scenes: List[Scene] = []
         self.is_connected = False
         # Track online status events
         self.online_status_events: List[Tuple[str, bool]] = []
@@ -507,11 +507,11 @@ class DaliGatewayTester:
 
             # Test reading details for each discovered group
             for group in self.groups[:3]:  # Test up to 3 groups
-                group_id = group["id"]
-                channel = group["channel"]
+                group_id = group.group_id
+                channel = group.channel
                 _LOGGER.info(
                     "Reading group: %s (ID: %s, Channel: %s)",
-                    group["name"],
+                    group.name,
                     group_id,
                     channel,
                 )
@@ -565,11 +565,11 @@ class DaliGatewayTester:
 
             # Test reading details for each discovered scene
             for scene in self.scenes[:3]:  # Test up to 3 scenes
-                scene_id = scene["id"]
-                channel = scene["channel"]
+                scene_id = scene.scene_id
+                channel = scene.channel
                 _LOGGER.info(
                     "Reading scene: %s (ID: %s, Channel: %s)",
-                    scene["name"],
+                    scene.name,
                     scene_id,
                     channel,
                 )
