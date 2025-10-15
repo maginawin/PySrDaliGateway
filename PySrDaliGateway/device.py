@@ -206,7 +206,7 @@ class Device:
     def read_status(self) -> None:
         self._client.command_read_dev(self._dev_type, self._channel, self._address)
         _LOGGER.debug(
-            "Requesting status for device %s (%s)", self._data.id, self._data.name
+            "Requesting status for device %s (%s)", self.dev_id, self._name
         )
 
     def press_button(self, button_id: int, event_type: int = 1) -> None:
