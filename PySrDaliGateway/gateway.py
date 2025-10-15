@@ -16,7 +16,7 @@ try:
     HAS_CALLBACK_API_VERSION = True
 except ImportError:
     # paho-mqtt < 2.0.0 doesn't have CallbackAPIVersion
-    HAS_CALLBACK_API_VERSION = False
+    HAS_CALLBACK_API_VERSION = False # pyright: ignore[reportConstantRedefinition]
 
 from .const import CA_CERT_PATH, DEVICE_MODEL_MAP
 from .exceptions import DaliGatewayError
@@ -73,7 +73,7 @@ class DaliGateway:
         if HAS_CALLBACK_API_VERSION:
             # paho-mqtt >= 2.0.0
             self._mqtt_client = paho_mqtt.Client(
-                CallbackAPIVersion.VERSION2,
+                CallbackAPIVersion.VERSION2, # pyright: ignore[reportPossiblyUnboundVariable]
                 client_id=f"ha_dali_center_{self._gw_sn}",
                 protocol=paho_mqtt.MQTTv311,
             )
