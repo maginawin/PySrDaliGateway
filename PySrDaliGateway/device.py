@@ -14,7 +14,8 @@ class SupportsDeviceCommands(Protocol):
     """Protocol exposing the gateway commands needed by Device instances."""
 
     @property
-    def gw_sn(self) -> str: ...
+    def gw_sn(self) -> str:
+        raise NotImplementedError
 
     def command_write_dev(
         self,
@@ -22,21 +23,26 @@ class SupportsDeviceCommands(Protocol):
         channel: int,
         address: int,
         properties: List[Dict[str, Any]],
-    ) -> None: ...
+    ) -> None:
+        raise NotImplementedError
 
-    def command_read_dev(self, dev_type: str, channel: int, address: int) -> None: ...
+    def command_read_dev(self, dev_type: str, channel: int, address: int) -> None:
+        raise NotImplementedError
 
     def command_get_energy(
         self, dev_type: str, channel: int, address: int, year: int, month: int, day: int
-    ) -> None: ...
+    ) -> None:
+        raise NotImplementedError
 
     def command_set_sensor_on_off(
         self, dev_type: str, channel: int, address: int, value: bool
-    ) -> None: ...
+    ) -> None:
+        raise NotImplementedError
 
     def command_get_sensor_on_off(
         self, dev_type: str, channel: int, address: int
-    ) -> None: ...
+    ) -> None:
+        raise NotImplementedError
 
 
 class Device:

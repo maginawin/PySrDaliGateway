@@ -9,9 +9,11 @@ class SupportsSceneCommands(Protocol):
     """Protocol exposing the minimum gateway interface required by Scene."""
 
     @property
-    def gw_sn(self) -> str: ...
+    def gw_sn(self) -> str:
+        raise NotImplementedError
 
-    def command_write_scene(self, scene_id: int, channel: int) -> None: ...
+    def command_write_scene(self, scene_id: int, channel: int) -> None:
+        raise NotImplementedError
 
 
 class Scene:

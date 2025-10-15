@@ -13,11 +13,13 @@ class SupportsGroupCommands(Protocol):
     """Protocol exposing the minimum gateway interface required by Group."""
 
     @property
-    def gw_sn(self) -> str: ...
+    def gw_sn(self) -> str:
+        raise NotImplementedError
 
     def command_write_group(
         self, group_id: int, channel: int, properties: List[Dict[str, Any]]
-    ) -> None: ...
+    ) -> None:
+        raise NotImplementedError
 
 
 class Group:
