@@ -10,9 +10,9 @@ from typing import Any, Callable, Dict, List, Set, Tuple
 from PySrDaliGateway.discovery import DaliGatewayDiscovery
 from PySrDaliGateway.exceptions import DaliGatewayError
 from PySrDaliGateway.gateway import DaliGateway
+from PySrDaliGateway.device import Device
 from PySrDaliGateway.types import (
     DeviceParamType,
-    DeviceType,
     GroupType,
     IlluminanceStatus,
     LightStatus,
@@ -36,7 +36,7 @@ class DaliGatewayTester:
         self.discovery: DaliGatewayDiscovery | None = None
         self.gateways: List[DaliGateway] = []
         self.gateway: DaliGateway | None = None
-        self.devices: List[DeviceType] = []
+        self.devices: List[Device] = []
         self.groups: List[GroupType] = []
         self.scenes: List[SceneType] = []
         self.is_connected = False
@@ -304,13 +304,13 @@ class DaliGatewayTester:
             _LOGGER.info("✓ Found %d device(s)", len(self.devices))
 
             for device in self.devices[:5]:  # Show first 5 devices
-                model_info = device.get("model", "N/A")
+                model_info = device.model or "N/A"
                 _LOGGER.info(
                     "  Device: %s (%s) - Channel %s, Address %s, Model: %s",
-                    device["name"],
-                    device["dev_type"],
-                    device["channel"],
-                    device["address"],
+                    device.name,
+                    device.dev_type,
+                    device.channel,
+                    device.address,
                     model_info,
                 )
             return True
@@ -331,17 +331,17 @@ class DaliGatewayTester:
                 devices_to_test = self.devices[:device_limit]
 
             for device in devices_to_test:
-                model_info = device.get("model", "N/A")
+                model_info = device.model or "N/A"
                 _LOGGER.info(
                     "Reading device: %s (Channel %s, Address %s, Model: %s)",
-                    device["name"],
-                    device["channel"],
-                    device["address"],
+                    device.name,
+                    device.channel,
+                    device.address,
                     model_info,
                 )
                 gateway = self._assert_gateway()
                 gateway.command_read_dev(
-                    device["dev_type"], device["channel"], device["address"]
+                    device.dev_type, device.channel, device.address
                 )
 
         except (DaliGatewayError, RuntimeError) as e:
@@ -806,14 +806,14 @@ class DaliGatewayTester:
             light_devices = [
                 d
                 for d in self.devices
-                if d["dev_type"] in ["0101", "0102", "0103", "0104", "0105"]
+                if d.dev_type in ["0101", "0102", "0103", "0104", "0105"]
             ]
-            motion_devices = [d for d in self.devices if d["dev_type"] == "0201"]
-            illuminance_devices = [d for d in self.devices if d["dev_type"] == "0301"]
+            motion_devices = [d for d in self.devices if d.dev_type == "0201"]
+            illuminance_devices = [d for d in self.devices if d.dev_type == "0301"]
             panel_devices = [
                 d
                 for d in self.devices
-                if d["dev_type"] in ["0401", "0402", "0403", "0404"]
+                if d.dev_type in ["0401", "0402", "0403", "0404"]
             ]
 
             _LOGGER.info(
@@ -828,16 +828,16 @@ class DaliGatewayTester:
             if light_devices:
                 _LOGGER.info("Testing light device callbacks...")
                 for device in light_devices[:3]:  # Test up to 3 light devices
-                    model_info = device.get("model", "N/A")
+                    model_info = device.model or "N/A"
                     _LOGGER.info(
                         "Reading light device: %s (Channel %s, Address %s, Model: %s)",
-                        device["name"],
-                        device["channel"],
-                        device["address"],
+                        device.name,
+                        device.channel,
+                        device.address,
                         model_info,
                     )
                     gateway.command_read_dev(
-                        device["dev_type"], device["channel"], device["address"]
+                        device.dev_type, device.channel, device.address
                     )
                     await asyncio.sleep(2)  # Wait for response
 
@@ -845,16 +845,16 @@ class DaliGatewayTester:
             if motion_devices:
                 _LOGGER.info("Testing motion sensor callbacks...")
                 for device in motion_devices[:2]:  # Test up to 2 motion devices
-                    model_info = device.get("model", "N/A")
+                    model_info = device.model or "N/A"
                     _LOGGER.info(
                         "Reading motion device: %s (Channel %s, Address %s, Model: %s)",
-                        device["name"],
-                        device["channel"],
-                        device["address"],
+                        device.name,
+                        device.channel,
+                        device.address,
                         model_info,
                     )
                     gateway.command_read_dev(
-                        device["dev_type"], device["channel"], device["address"]
+                        device.dev_type, device.channel, device.address
                     )
                     await asyncio.sleep(2)  # Wait for response
 
@@ -864,16 +864,16 @@ class DaliGatewayTester:
                 for device in illuminance_devices[
                     :2
                 ]:  # Test up to 2 illuminance devices
-                    model_info = device.get("model", "N/A")
+                    model_info = device.model or "N/A"
                     _LOGGER.info(
                         "Reading illuminance device: %s (Channel %s, Address %s, Model: %s)",
-                        device["name"],
-                        device["channel"],
-                        device["address"],
+                        device.name,
+                        device.channel,
+                        device.address,
                         model_info,
                     )
                     gateway.command_read_dev(
-                        device["dev_type"], device["channel"], device["address"]
+                        device.dev_type, device.channel, device.address
                     )
                     await asyncio.sleep(2)  # Wait for response
 
@@ -881,16 +881,16 @@ class DaliGatewayTester:
             if panel_devices:
                 _LOGGER.info("Testing panel callbacks...")
                 for device in panel_devices[:2]:  # Test up to 2 panel devices
-                    model_info = device.get("model", "N/A")
+                    model_info = device.model or "N/A"
                     _LOGGER.info(
                         "Reading panel device: %s (Channel %s, Address %s, Model: %s)",
-                        device["name"],
-                        device["channel"],
-                        device["address"],
+                        device.name,
+                        device.channel,
+                        device.address,
                         model_info,
                     )
                     gateway.command_read_dev(
-                        device["dev_type"], device["channel"], device["address"]
+                        device.dev_type, device.channel, device.address
                     )
                     await asyncio.sleep(2)  # Wait for response
 

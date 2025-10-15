@@ -1,7 +1,7 @@
 """Dali Gateway Types"""
 
 from enum import Enum
-from typing import Callable, List, Tuple, TypedDict
+from typing import Any, Callable, Dict, List, Tuple, TypedDict
 
 
 class PanelEventType(Enum):
@@ -54,28 +54,13 @@ class SceneDeviceType(TypedDict):
     property: LightStatus
 
 
-class DeviceType(TypedDict):
-    unique_id: str
-    id: str
-    name: str
-    dev_type: str
-    channel: int
-    address: int
-    status: str
-    dev_sn: str
-    area_name: str
-    area_id: str
-    model: str
-    prop: List[DeviceProperty]
-
-
 class GroupType(TypedDict):
     unique_id: str
     id: int
     name: str
     channel: int
     area_id: str
-    devices: List[DeviceType]
+    devices: List[Dict[str, Any]]
 
 
 class SceneType(TypedDict):
