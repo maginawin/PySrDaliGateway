@@ -7,10 +7,10 @@ import logging
 import sys
 from typing import Any, Callable, Dict, List, Set, Tuple
 
+from PySrDaliGateway.device import Device
 from PySrDaliGateway.discovery import DaliGatewayDiscovery
 from PySrDaliGateway.exceptions import DaliGatewayError
 from PySrDaliGateway.gateway import DaliGateway
-from PySrDaliGateway.device import Device
 from PySrDaliGateway.types import (
     DeviceParamType,
     GroupType,

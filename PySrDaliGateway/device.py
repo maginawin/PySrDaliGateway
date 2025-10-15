@@ -14,31 +14,29 @@ class SupportsDeviceCommands(Protocol):
     """Protocol exposing the gateway commands needed by Device instances."""
 
     @property
-    def gw_sn(self) -> str:
-        ...
+    def gw_sn(self) -> str: ...
 
     def command_write_dev(
-        self, dev_type: str, channel: int, address: int, properties: List[Dict[str, Any]]
-    ) -> None:
-        ...
+        self,
+        dev_type: str,
+        channel: int,
+        address: int,
+        properties: List[Dict[str, Any]],
+    ) -> None: ...
 
-    def command_read_dev(self, dev_type: str, channel: int, address: int) -> None:
-        ...
+    def command_read_dev(self, dev_type: str, channel: int, address: int) -> None: ...
 
     def command_get_energy(
         self, dev_type: str, channel: int, address: int, year: int, month: int, day: int
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def command_set_sensor_on_off(
         self, dev_type: str, channel: int, address: int, value: bool
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def command_get_sensor_on_off(
         self, dev_type: str, channel: int, address: int
-    ) -> None:
-        ...
+    ) -> None: ...
 
 
 class Device:
@@ -200,9 +198,7 @@ class Device:
         _LOGGER.debug("Device %s (%s) turned off", self._id, self._name)
 
     def read_status(self) -> None:
-        self._client.command_read_dev(
-            self._dev_type, self._channel, self._address
-        )
+        self._client.command_read_dev(self._dev_type, self._channel, self._address)
         _LOGGER.debug(
             "Requesting status for device %s (%s)", self._data.id, self._data.name
         )

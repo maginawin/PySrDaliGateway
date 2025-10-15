@@ -199,9 +199,7 @@ class DaliGatewayDiscovery:
         self.cryptor = MessageCryptor()
         self.sender = MulticastSender()
 
-    async def discover_gateways(
-        self, gw_sn: str | None = None
-    ) -> List[DaliGateway]:
+    async def discover_gateways(self, gw_sn: str | None = None) -> List[DaliGateway]:
         _LOGGER.info(
             "Starting DALI gateway discovery%s",
             f" for specific gateway: {gw_sn}" if gw_sn else "",
