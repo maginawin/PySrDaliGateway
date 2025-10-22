@@ -4,6 +4,18 @@ from enum import Enum
 from typing import Callable, List, Tuple, TypedDict
 
 
+class CallbackEventType(Enum):
+    """Gateway callback event types for listener registration"""
+
+    ONLINE_STATUS = "online_status"
+    LIGHT_STATUS = "light_status"
+    MOTION_STATUS = "motion_status"
+    ILLUMINANCE_STATUS = "illuminance_status"
+    PANEL_STATUS = "panel_status"
+    ENERGY_REPORT = "energy_report"
+    SENSOR_ON_OFF = "sensor_on_off"
+
+
 class PanelEventType(Enum):
     """Panel button event types"""
 

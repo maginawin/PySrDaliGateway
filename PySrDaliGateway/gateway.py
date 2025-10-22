@@ -5,7 +5,7 @@ import json
 import logging
 import ssl
 import time
-from typing import Any, Callable, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Sequence, Union
 
 import paho.mqtt.client as paho_mqtt
 
@@ -38,6 +38,7 @@ from .helper import (
 )
 from .scene import Scene
 from .types import (
+    CallbackEventType,
     DeviceParamType,
     IlluminanceStatus,
     LightStatus,
@@ -122,17 +123,16 @@ class DaliGateway:
         self._read_scene_received = asyncio.Event()
         self._read_scene_result: Dict[str, Any] | None = None
 
-        # Callbacks
-        self._on_online_status: Callable[[str, bool], None] | None = None
-        self._on_light_status: Callable[[str, LightStatus], None] | None = None
-        self._on_motion_status: Callable[[str, MotionStatus], None] | None = None
-        self._on_illuminance_status: Callable[[str, IlluminanceStatus], None] | None = (
-            None
-        )
-        self._on_panel_status: Callable[[str, PanelStatus], None] | None = None
-        self._on_energy_report: Callable[[str, float], None] | None = None
-        self._on_sensor_on_off: Callable[[str, bool], None] | None = None
-        self._on_energy: Callable[[str, Dict[str, Any]], None] | None = None
+        # Multi-listener support
+        self._listeners: Dict[CallbackEventType, List[Callable[..., None]]] = {
+            CallbackEventType.ONLINE_STATUS: [],
+            CallbackEventType.LIGHT_STATUS: [],
+            CallbackEventType.MOTION_STATUS: [],
+            CallbackEventType.ILLUMINANCE_STATUS: [],
+            CallbackEventType.PANEL_STATUS: [],
+            CallbackEventType.ENERGY_REPORT: [],
+            CallbackEventType.SENSOR_ON_OFF: [],
+        }
 
         self._window_ms = 100
         self._pending_requests: Dict[str, Dict[str, Dict[str, Any]]] = {}
@@ -228,73 +228,38 @@ class DaliGateway:
     def name(self) -> str:
         return self._name
 
-    @property
-    def on_online_status(self) -> Callable[[str, bool], None] | None:
-        return self._on_online_status
-
-    @on_online_status.setter
-    def on_online_status(self, callback: Callable[[str, bool], None]) -> None:
-        self._on_online_status = callback
-
-    @property
-    def on_light_status(self) -> Callable[[str, LightStatus], None] | None:
-        return self._on_light_status
-
-    @on_light_status.setter
-    def on_light_status(self, callback: Callable[[str, LightStatus], None]) -> None:
-        self._on_light_status = callback
-
-    @property
-    def on_motion_status(self) -> Callable[[str, MotionStatus], None] | None:
-        return self._on_motion_status
-
-    @on_motion_status.setter
-    def on_motion_status(self, callback: Callable[[str, MotionStatus], None]) -> None:
-        self._on_motion_status = callback
-
-    @property
-    def on_illuminance_status(
+    def register_listener(
         self,
-    ) -> Callable[[str, IlluminanceStatus], None] | None:
-        return self._on_illuminance_status
+        event_type: CallbackEventType,
+        listener: Union[
+            Callable[[str, bool], None],
+            Callable[[str, LightStatus], None],
+            Callable[[str, MotionStatus], None],
+            Callable[[str, IlluminanceStatus], None],
+            Callable[[str, PanelStatus], None],
+            Callable[[str, float], None],
+        ],
+    ) -> Callable[[], None]:
+        """Register a listener for a specific event type."""
+        if event_type not in self._listeners:
+            return lambda: None
 
-    @on_illuminance_status.setter
-    def on_illuminance_status(
-        self, callback: Callable[[str, IlluminanceStatus], None]
+        self._listeners[event_type].append(listener)
+
+        return lambda: self._listeners[event_type].remove(listener)
+
+    def _notify_listeners(
+        self,
+        event_type: CallbackEventType,
+        dev_id: str,
+        data: Union[bool, LightStatus, MotionStatus, IlluminanceStatus, PanelStatus, float],
     ) -> None:
-        self._on_illuminance_status = callback
-
-    @property
-    def on_panel_status(self) -> Callable[[str, PanelStatus], None] | None:
-        return self._on_panel_status
-
-    @on_panel_status.setter
-    def on_panel_status(self, callback: Callable[[str, PanelStatus], None]) -> None:
-        self._on_panel_status = callback
-
-    @property
-    def on_energy_report(self) -> Callable[[str, float], None] | None:
-        return self._on_energy_report
-
-    @on_energy_report.setter
-    def on_energy_report(self, callback: Callable[[str, float], None]) -> None:
-        self._on_energy_report = callback
-
-    @property
-    def on_sensor_on_off(self) -> Callable[[str, bool], None] | None:
-        return self._on_sensor_on_off
-
-    @on_sensor_on_off.setter
-    def on_sensor_on_off(self, callback: Callable[[str, bool], None]) -> None:
-        self._on_sensor_on_off = callback
-
-    @property
-    def on_energy(self) -> Callable[[str, Dict[str, Any]], None] | None:
-        return self._on_energy
-
-    @on_energy.setter
-    def on_energy(self, callback: Callable[[str, Dict[str, Any]], None]) -> None:
-        self._on_energy = callback
+        """Notify all registered listeners for a specific event type."""
+        for listener in self._listeners.get(event_type, []):
+            if asyncio.iscoroutinefunction(listener):
+                asyncio.create_task(listener(dev_id, data))
+            else:
+                listener(dev_id, data)
 
     def _on_connect(
         self,
@@ -319,9 +284,7 @@ class DaliGateway:
                 "Gateway %s: Subscribed to MQTT topic %s", self._gw_sn, self._sub_topic
             )
 
-            # Trigger online_status callback with gateway SN as device ID and True status
-            if self._on_online_status:
-                self._on_online_status(self._gw_sn, True)
+            self._notify_listeners(CallbackEventType.ONLINE_STATUS, self._gw_sn, True)
         else:
             _LOGGER.error(
                 "Gateway %s: MQTT connection failed with code %s", self._gw_sn, rc
@@ -356,9 +319,7 @@ class DaliGateway:
         else:
             _LOGGER.debug("Gateway %s: MQTT disconnection completed", self._gw_sn)
 
-        # Trigger online_status callback with gateway SN as device ID and False status
-        if self._on_online_status:
-            self._on_online_status(self._gw_sn, False)
+        self._notify_listeners(CallbackEventType.ONLINE_STATUS, self._gw_sn, False)
 
     def _on_message(
         self, client: paho_mqtt.Client, userdata: Any, msg: paho_mqtt.MQTTMessage
@@ -442,9 +403,7 @@ class DaliGateway:
             )
 
             available: bool = data.get("status", False)
-
-            if self._on_online_status:
-                self._on_online_status(dev_id, available)
+            self._notify_listeners(CallbackEventType.ONLINE_STATUS, dev_id, available)
 
     def _process_device_status(self, payload: Dict[str, Any]) -> None:
         data = payload.get("data")
@@ -465,23 +424,21 @@ class DaliGateway:
         property_list = data.get("property", [])
         dev_type = data.get("devType")
 
-        if dev_type and is_light_device(dev_type) and self._on_light_status:
+        if dev_type and is_light_device(dev_type):
             light_status = parse_light_status(property_list)
-            self._on_light_status(dev_id, light_status)
-        elif dev_type and is_motion_sensor(dev_type) and self._on_motion_status:
+            self._notify_listeners(CallbackEventType.LIGHT_STATUS, dev_id, light_status)
+        elif dev_type and is_motion_sensor(dev_type):
             motion_statuses = parse_motion_status(property_list)
             for motion_status in motion_statuses:
-                self._on_motion_status(dev_id, motion_status)
-        elif (
-            dev_type and is_illuminance_sensor(dev_type) and self._on_illuminance_status
-        ):
+                self._notify_listeners(CallbackEventType.MOTION_STATUS, dev_id, motion_status)
+        elif dev_type and is_illuminance_sensor(dev_type):
             illuminance_statuses = parse_illuminance_status(property_list)
             for illuminance_status in illuminance_statuses:
-                self._on_illuminance_status(dev_id, illuminance_status)
-        elif dev_type and is_panel_device(dev_type) and self._on_panel_status:
+                self._notify_listeners(CallbackEventType.ILLUMINANCE_STATUS, dev_id, illuminance_status)
+        elif dev_type and is_panel_device(dev_type):
             panel_statuses = parse_panel_status(property_list)
             for panel_status in panel_statuses:
-                self._on_panel_status(dev_id, panel_status)
+                self._notify_listeners(CallbackEventType.PANEL_STATUS, dev_id, panel_status)
         else:
             # Warn if no callback handler exists for this device type
             _LOGGER.warning(
@@ -530,8 +487,7 @@ class DaliGateway:
                 try:
                     energy_value = float(prop.get("value", "0"))
 
-                    if self._on_energy_report:
-                        self._on_energy_report(dev_id, energy_value)
+                    self._notify_listeners(CallbackEventType.ENERGY_REPORT, dev_id, energy_value)
                 except (ValueError, TypeError) as e:
                     _LOGGER.error("Error converting energy value: %s", str(e))
 
@@ -772,8 +728,7 @@ class DaliGateway:
 
         value = payload.get("value", False)
 
-        if self._on_sensor_on_off:
-            self._on_sensor_on_off(dev_id, value)
+        self._notify_listeners(CallbackEventType.SENSOR_ON_OFF, dev_id, value)
 
     def _process_get_dev_param_response(self, payload: Dict[str, Any]) -> None:
         _LOGGER.debug(
