@@ -14,6 +14,7 @@ from PySrDaliGateway.gateway import DaliGateway
 from PySrDaliGateway.group import Group
 from PySrDaliGateway.scene import Scene
 from PySrDaliGateway.types import (
+    CallbackEventType,
     DeviceParamType,
     IlluminanceStatus,
     LightStatus,
@@ -200,7 +201,9 @@ class DaliGatewayTester:
         )
 
         # Set up online status callback to track gateway status
-        self.gateway.on_online_status = self._on_online_status_callback
+        self.gateway.register_listener(
+            CallbackEventType.ONLINE_STATUS, self._on_online_status_callback
+        )
 
         try:
             await self.gateway.connect()
@@ -789,10 +792,19 @@ class DaliGatewayTester:
             gateway = self._assert_gateway()
 
             # Set up all callback handlers
-            gateway.on_light_status = self._on_light_status_callback
-            gateway.on_motion_status = self._on_motion_status_callback
-            gateway.on_illuminance_status = self._on_illuminance_status_callback
-            gateway.on_panel_status = self._on_panel_status_callback
+            gateway.register_listener(
+                CallbackEventType.LIGHT_STATUS, self._on_light_status_callback
+            )
+            gateway.register_listener(
+                CallbackEventType.MOTION_STATUS, self._on_motion_status_callback
+            )
+            gateway.register_listener(
+                CallbackEventType.ILLUMINANCE_STATUS,
+                self._on_illuminance_status_callback,
+            )
+            gateway.register_listener(
+                CallbackEventType.PANEL_STATUS, self._on_panel_status_callback
+            )
 
             # Clear previous events
             self.light_status_events.clear()

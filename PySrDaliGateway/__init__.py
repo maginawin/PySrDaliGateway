@@ -8,6 +8,7 @@ from .group import Group
 from .panel import Panel
 from .scene import Scene
 from .types import (
+    CallbackEventType,
     IlluminanceStatus,
     LightStatus,
     MotionState,
@@ -18,6 +19,7 @@ from .types import (
 )
 
 __all__ = [
+    "CallbackEventType",
     "DaliGateway",
     "Device",
     "Group",
