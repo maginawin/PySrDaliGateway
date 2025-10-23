@@ -13,6 +13,7 @@ class CallbackEventType(Enum):
     ILLUMINANCE_STATUS = "illuminance_status"
     PANEL_STATUS = "panel_status"
     ENERGY_REPORT = "energy_report"
+    ENERGY_DATA = "energy_data"
     SENSOR_ON_OFF = "sensor_on_off"
 
 
@@ -118,6 +119,15 @@ class IlluminanceStatus(TypedDict):
 
     illuminance_value: float  # Illuminance in lux
     is_valid: bool  # Whether the value is within valid range (0-1000)
+
+
+class EnergyData(TypedDict):
+    """Energy consumption data with historical records"""
+
+    yearEnergy: dict  # Yearly energy consumption data
+    monthEnergy: dict  # Monthly energy consumption data
+    dayEnergy: dict  # Daily energy consumption data
+    hourEnergy: list  # Hourly energy consumption data
 
 
 LightStatusCallback = Callable[[LightStatus], None]

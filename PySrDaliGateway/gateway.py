@@ -40,6 +40,7 @@ from .scene import Scene
 from .types import (
     CallbackEventType,
     DeviceParamType,
+    EnergyData,
     IlluminanceStatus,
     LightStatus,
     MotionStatus,
@@ -131,6 +132,7 @@ class DaliGateway:
             CallbackEventType.ILLUMINANCE_STATUS: [],
             CallbackEventType.PANEL_STATUS: [],
             CallbackEventType.ENERGY_REPORT: [],
+            CallbackEventType.ENERGY_DATA: [],
             CallbackEventType.SENSOR_ON_OFF: [],
         }
         self._background_tasks: set[asyncio.Task[None]] = set()
@@ -239,6 +241,7 @@ class DaliGateway:
             Callable[[str, IlluminanceStatus], None],
             Callable[[str, PanelStatus], None],
             Callable[[str, float], None],
+            Callable[[str, EnergyData], None],
         ],
     ) -> Callable[[], None]:
         """Register a listener for a specific event type."""
@@ -254,7 +257,13 @@ class DaliGateway:
         event_type: CallbackEventType,
         dev_id: str,
         data: Union[
-            bool, LightStatus, MotionStatus, IlluminanceStatus, PanelStatus, float
+            bool,
+            LightStatus,
+            MotionStatus,
+            IlluminanceStatus,
+            PanelStatus,
+            float,
+            EnergyData,
         ],
     ) -> None:
         """Notify all registered listeners for a specific event type."""
@@ -533,15 +542,14 @@ class DaliGateway:
                 _LOGGER.warning("Failed to generate device ID from data: %s", data)
                 continue
 
-            energy_data = {
+            energy_data: EnergyData = {
                 "yearEnergy": data.get("yearEnergy", {}),
                 "monthEnergy": data.get("monthEnergy", {}),
                 "dayEnergy": data.get("dayEnergy", {}),
                 "hourEnergy": data.get("hourEnergy", []),
             }
 
-            if self._on_energy:
-                self._on_energy(dev_id, energy_data)
+            self._notify_listeners(CallbackEventType.ENERGY_DATA, dev_id, energy_data)
 
     def _process_search_device_response(self, payload_json: Dict[str, Any]) -> None:
         for raw_device_data in payload_json.get("data", []):
