@@ -799,7 +799,8 @@ class DaliGatewayTester:
                 CallbackEventType.MOTION_STATUS, self._on_motion_status_callback
             )
             gateway.register_listener(
-                CallbackEventType.ILLUMINANCE_STATUS, self._on_illuminance_status_callback
+                CallbackEventType.ILLUMINANCE_STATUS,
+                self._on_illuminance_status_callback,
             )
             gateway.register_listener(
                 CallbackEventType.PANEL_STATUS, self._on_panel_status_callback
