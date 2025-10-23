@@ -133,6 +133,7 @@ class DaliGateway:
             CallbackEventType.ENERGY_REPORT: [],
             CallbackEventType.SENSOR_ON_OFF: [],
         }
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
         self._window_ms = 100
         self._pending_requests: Dict[str, Dict[str, Dict[str, Any]]] = {}
@@ -252,12 +253,16 @@ class DaliGateway:
         self,
         event_type: CallbackEventType,
         dev_id: str,
-        data: Union[bool, LightStatus, MotionStatus, IlluminanceStatus, PanelStatus, float],
+        data: Union[
+            bool, LightStatus, MotionStatus, IlluminanceStatus, PanelStatus, float
+        ],
     ) -> None:
         """Notify all registered listeners for a specific event type."""
         for listener in self._listeners.get(event_type, []):
             if asyncio.iscoroutinefunction(listener):
-                asyncio.create_task(listener(dev_id, data))
+                task = asyncio.create_task(listener(dev_id, data))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
             else:
                 listener(dev_id, data)
 
@@ -430,15 +435,21 @@ class DaliGateway:
         elif dev_type and is_motion_sensor(dev_type):
             motion_statuses = parse_motion_status(property_list)
             for motion_status in motion_statuses:
-                self._notify_listeners(CallbackEventType.MOTION_STATUS, dev_id, motion_status)
+                self._notify_listeners(
+                    CallbackEventType.MOTION_STATUS, dev_id, motion_status
+                )
         elif dev_type and is_illuminance_sensor(dev_type):
             illuminance_statuses = parse_illuminance_status(property_list)
             for illuminance_status in illuminance_statuses:
-                self._notify_listeners(CallbackEventType.ILLUMINANCE_STATUS, dev_id, illuminance_status)
+                self._notify_listeners(
+                    CallbackEventType.ILLUMINANCE_STATUS, dev_id, illuminance_status
+                )
         elif dev_type and is_panel_device(dev_type):
             panel_statuses = parse_panel_status(property_list)
             for panel_status in panel_statuses:
-                self._notify_listeners(CallbackEventType.PANEL_STATUS, dev_id, panel_status)
+                self._notify_listeners(
+                    CallbackEventType.PANEL_STATUS, dev_id, panel_status
+                )
         else:
             # Warn if no callback handler exists for this device type
             _LOGGER.warning(
@@ -487,7 +498,9 @@ class DaliGateway:
                 try:
                     energy_value = float(prop.get("value", "0"))
 
-                    self._notify_listeners(CallbackEventType.ENERGY_REPORT, dev_id, energy_value)
+                    self._notify_listeners(
+                        CallbackEventType.ENERGY_REPORT, dev_id, energy_value
+                    )
                 except (ValueError, TypeError) as e:
                     _LOGGER.error("Error converting energy value: %s", str(e))
 
