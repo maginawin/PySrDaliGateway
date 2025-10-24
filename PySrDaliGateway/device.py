@@ -2,10 +2,10 @@
 
 import colorsys
 import logging
-from typing import Any, Dict, Iterable, List, Protocol, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Protocol, Tuple
 
 from .const import COLOR_MODE_MAP
-from .types import DeviceProperty
+from .types import CallbackEventType, DeviceProperty, ListenerCallback
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +44,14 @@ class SupportsDeviceCommands(Protocol):
     ) -> None:
         raise NotImplementedError
 
+    def register_listener(
+        self,
+        event_type: CallbackEventType,
+        listener: ListenerCallback,
+    ) -> Callable[[], None]:
+        """Register a listener for a specific event type."""
+        raise NotImplementedError
+
 
 class Device:
     """Dali Gateway Device"""
@@ -66,80 +74,34 @@ class Device:
         properties: Iterable[DeviceProperty] | None = None,
     ) -> None:
         self._client = command_client
-        self._unique_id = unique_id
-        self._id = dev_id
-        self._name = name
-        self._dev_type = dev_type
-        self._channel = channel
-        self._address = address
-        self._status = status
-        self._dev_sn = dev_sn
-        self._area_name = area_name
-        self._area_id = area_id
-        self._model = model
-        self._properties: List[DeviceProperty] = list(properties or [])
+        self.unique_id = unique_id
+        self.dev_id = dev_id
+        self.name = name
+        self.dev_type = dev_type
+        self.channel = channel
+        self.address = address
+        self.status = status
+        self.dev_sn = dev_sn
+        self.area_name = area_name
+        self.area_id = area_id
+        self.model = model
+        self.properties: List[DeviceProperty] = list(properties or [])
 
     def __repr__(self) -> str:
-        return f"Device(name={self._name}, unique_id={self.unique_id})"
+        return f"Device(name={self.name}, unique_id={self.unique_id})"
 
     def __str__(self) -> str:
-        return self._name
+        return self.name
 
     @property
     def gw_sn(self) -> str:
+        """Gateway serial number (delegated from client)."""
         return self._client.gw_sn
 
     @property
-    def dev_id(self) -> str:
-        return self._id
-
-    @property
-    def dev_type(self) -> str:
-        return self._dev_type
-
-    @property
-    def status(self) -> str:
-        return self._status
-
-    @property
-    def name(self) -> str:
-        return self._name
-
-    @property
-    def unique_id(self) -> str:
-        return self._unique_id
-
-    @property
-    def channel(self) -> int:
-        return self._channel
-
-    @property
-    def address(self) -> int:
-        return self._address
-
-    @property
     def color_mode(self) -> str:
-        return COLOR_MODE_MAP.get(self._dev_type, "brightness")
-
-    @property
-    def model(self) -> str:
-        return self._model
-
-    @property
-    def area_name(self) -> str:
-        return self._area_name
-
-    @property
-    def area_id(self) -> str:
-        return self._area_id
-
-    @property
-    def dev_sn(self) -> str:
-        return self._dev_sn
-
-    @property
-    def properties(self) -> List[DeviceProperty]:
-        return list(self._properties)
+        """Computed color mode based on device type."""
+        return COLOR_MODE_MAP.get(self.dev_type, "brightness")
 
     def _create_property(self, dpid: int, data_type: str, value: Any) -> Dict[str, Any]:
         return {"dpid": dpid, "dataType": data_type, "value": value}
@@ -147,7 +109,7 @@ class Device:
     def _send_properties(self, properties: List[Dict[str, Any]]) -> None:
         for prop in properties:
             self._client.command_write_dev(
-                self._dev_type, self._channel, self._address, [prop]
+                self.dev_type, self.channel, self.address, [prop]
             )
 
     def turn_on(
@@ -193,19 +155,19 @@ class Device:
         self._send_properties(properties)
         _LOGGER.debug(
             "Device %s (%s) turned on with properties: %s",
-            self._id,
-            self._name,
+            self.dev_id,
+            self.name,
             properties,
         )
 
     def turn_off(self) -> None:
         properties = [self._create_property(20, "bool", False)]
         self._send_properties(properties)
-        _LOGGER.debug("Device %s (%s) turned off", self._id, self._name)
+        _LOGGER.debug("Device %s (%s) turned off", self.dev_id, self.name)
 
     def read_status(self) -> None:
-        self._client.command_read_dev(self._dev_type, self._channel, self._address)
-        _LOGGER.debug("Requesting status for device %s (%s)", self.dev_id, self._name)
+        self._client.command_read_dev(self.dev_type, self.channel, self.address)
+        _LOGGER.debug("Requesting status for device %s (%s)", self.dev_id, self.name)
 
     def press_button(self, button_id: int, event_type: int = 1) -> None:
         properties = [self._create_property(button_id, "uint8", event_type)]
@@ -214,43 +176,78 @@ class Device:
         _LOGGER.debug(
             "Button %d pressed on device %s (%s) with event type %d",
             button_id,
-            self._id,
-            self._name,
+            self.dev_id,
+            self.name,
             event_type,
         )
 
     def set_sensor_enabled(self, enabled: bool) -> None:
         self._client.command_set_sensor_on_off(
-            self._dev_type, self._channel, self._address, enabled
+            self.dev_type, self.channel, self.address, enabled
         )
         _LOGGER.debug(
             "Sensor %s (%s) enabled state set to %s",
-            self._id,
-            self._name,
+            self.dev_id,
+            self.name,
             enabled,
         )
 
     def get_sensor_enabled(self) -> None:
         self._client.command_get_sensor_on_off(
-            self._dev_type, self._channel, self._address
+            self.dev_type, self.channel, self.address
         )
         _LOGGER.debug(
             "Requesting sensor %s (%s) enabled state",
-            self._id,
-            self._name,
+            self.dev_id,
+            self.name,
         )
 
     def get_energy(self, year: int, month: int, day: int) -> None:
         self._client.command_get_energy(
-            self._dev_type,
-            self._channel,
-            self._address,
+            self.dev_type,
+            self.channel,
+            self.address,
             year,
             month,
             day,
         )
         _LOGGER.debug(
             "Requesting energy data for device %s (%s)",
-            self._id,
-            self._name,
+            self.dev_id,
+            self.name,
         )
+
+    def register_listener(
+        self,
+        event_type: CallbackEventType,
+        listener: ListenerCallback,
+    ) -> Callable[[], None]:
+        """Register a listener for this device's events."""
+        return self._client.register_listener(event_type, listener)
+
+
+class AllLightsController(Device):
+    """Controller for all lights on a gateway using DALI broadcast address."""
+
+    def __init__(
+        self,
+        command_client: SupportsDeviceCommands,
+        devices: Iterable[Device],
+    ) -> None:
+        """Initialize the all lights controller."""
+        super().__init__(
+            command_client=command_client,
+            unique_id=f"{command_client.gw_sn}_all_lights",
+            dev_id=command_client.gw_sn,
+            name="All Lights",
+            dev_type="FFFF",
+            channel=0,
+            address=1,
+            status="online",
+            dev_sn=command_client.gw_sn,
+            area_name="",
+            area_id="",
+            model="All Lights Controller",
+            properties=[],
+        )
+        self.devices = devices
