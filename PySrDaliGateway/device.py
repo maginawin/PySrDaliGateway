@@ -225,6 +225,7 @@ class Device:
         """Register a listener for this device's events."""
         return self._client.register_listener(event_type, listener)
 
+
 class AllLightsController(Device):
     """Controller for all lights on a gateway using DALI broadcast address."""
 
