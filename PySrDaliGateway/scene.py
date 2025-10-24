@@ -1,8 +1,9 @@
 """Dali Gateway Scene"""
 
-from typing import Protocol
+from typing import Any, Callable, Dict, Protocol
 
 from .helper import gen_scene_unique_id
+from .types import CallbackEventType, ListenerCallback
 
 
 class SupportsSceneCommands(Protocol):
@@ -13,6 +14,18 @@ class SupportsSceneCommands(Protocol):
         raise NotImplementedError
 
     def command_write_scene(self, scene_id: int, channel: int) -> None:
+        raise NotImplementedError
+
+    def register_listener(
+        self,
+        event_type: CallbackEventType,
+        listener: ListenerCallback,
+    ) -> Callable[[], None]:
+        """Register a listener for a specific event type."""
+        raise NotImplementedError
+
+    async def read_scene(self, scene_id: int, channel: int) -> Dict[str, Any]:
+        """Read scene information from gateway."""
         raise NotImplementedError
 
 
@@ -28,40 +41,38 @@ class Scene:
         area_id: str,
     ) -> None:
         self._client = command_client
-        self._id = scene_id
-        self._name = name
-        self._channel = channel
-        self._area_id = area_id
+        self.scene_id = scene_id
+        self.name = name
+        self.channel = channel
+        self.area_id = area_id
 
     def __str__(self) -> str:
-        return f"{self._name} (Channel {self._channel}, Scene {self._id})"
+        return f"{self.name} (Channel {self.channel}, Scene {self.scene_id})"
 
     def __repr__(self) -> str:
-        return f"Scene(name={self._name}, unique_id={self.unique_id})"
+        return f"Scene(name={self.name}, unique_id={self.unique_id})"
 
     @property
     def unique_id(self) -> str:
-        return gen_scene_unique_id(self._id, self._channel, self._client.gw_sn)
-
-    @property
-    def scene_id(self) -> int:
-        return self._id
-
-    @property
-    def name(self) -> str:
-        return self._name
+        """Computed unique identifier for this scene."""
+        return gen_scene_unique_id(self.scene_id, self.channel, self._client.gw_sn)
 
     @property
     def gw_sn(self) -> str:
+        """Gateway serial number (delegated from client)."""
         return self._client.gw_sn
 
-    @property
-    def channel(self) -> int:
-        return self._channel
-
-    @property
-    def area_id(self) -> str:
-        return self._area_id
-
     def activate(self) -> None:
-        self._client.command_write_scene(self._id, self._channel)
+        self._client.command_write_scene(self.scene_id, self.channel)
+
+    def register_listener(
+        self,
+        event_type: CallbackEventType,
+        listener: ListenerCallback,
+    ) -> Callable[[], None]:
+        """Register a listener for this scene's events."""
+        return self._client.register_listener(event_type, listener)
+
+    async def read_scene(self) -> Dict[str, Any]:
+        """Read this scene's information from the gateway."""
+        return await self._client.read_scene(self.scene_id, self.channel)

@@ -2,9 +2,10 @@
 
 import colorsys
 import logging
-from typing import Any, Dict, List, Protocol, Tuple
+from typing import Any, Callable, Dict, List, Protocol, Tuple
 
 from .helper import gen_group_unique_id
+from .types import CallbackEventType, ListenerCallback
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,6 +22,18 @@ class SupportsGroupCommands(Protocol):
     ) -> None:
         raise NotImplementedError
 
+    def register_listener(
+        self,
+        event_type: CallbackEventType,
+        listener: ListenerCallback,
+    ) -> Callable[[], None]:
+        """Register a listener for a specific event type."""
+        raise NotImplementedError
+
+    async def read_group(self, group_id: int, channel: int) -> Dict[str, Any]:
+        """Read group information from gateway."""
+        raise NotImplementedError
+
 
 class Group:
     """Dali Gateway Group"""
@@ -34,47 +47,33 @@ class Group:
         area_id: str,
     ) -> None:
         self._client = command_client
-        self._id = group_id
-        self._name = name
-        self._channel = channel
-        self._area_id = area_id
+        self.group_id = group_id
+        self.name = name
+        self.channel = channel
+        self.area_id = area_id
 
     def __str__(self) -> str:
-        return f"{self._name} (Channel {self._channel}, Group {self._id})"
+        return f"{self.name} (Channel {self.channel}, Group {self.group_id})"
 
     def __repr__(self) -> str:
-        return f"Group(name={self._name}, unique_id={self.unique_id})"
-
-    @property
-    def group_id(self) -> int:
-        return self._id
-
-    @property
-    def channel(self) -> int:
-        return self._channel
-
-    @property
-    def name(self) -> str:
-        return self._name
+        return f"Group(name={self.name}, unique_id={self.unique_id})"
 
     @property
     def unique_id(self) -> str:
-        return gen_group_unique_id(self._id, self._channel, self._client.gw_sn)
+        """Computed unique identifier for this group."""
+        return gen_group_unique_id(self.group_id, self.channel, self._client.gw_sn)
 
     @property
     def gw_sn(self) -> str:
+        """Gateway serial number (delegated from client)."""
         return self._client.gw_sn
-
-    @property
-    def area_id(self) -> str:
-        return self._area_id
 
     def _create_property(self, dpid: int, data_type: str, value: Any) -> Dict[str, Any]:
         return {"dpid": dpid, "dataType": data_type, "value": value}
 
     def _send_properties(self, properties: List[Dict[str, Any]]) -> None:
         for prop in properties:
-            self._client.command_write_group(self._id, self._channel, [prop])
+            self._client.command_write_group(self.group_id, self.channel, [prop])
 
     def turn_on(
         self,
@@ -109,7 +108,7 @@ class Group:
         self._send_properties(properties)
         _LOGGER.debug(
             "Group %s (%s) turned on with properties: %s",
-            self._id,
+            self.group_id,
             self.name,
             properties,
         )
@@ -117,4 +116,16 @@ class Group:
     def turn_off(self) -> None:
         properties: List[Dict[str, Any]] = [self._create_property(20, "bool", False)]
         self._send_properties(properties)
-        _LOGGER.debug("Group %s (%s) turned off", self._id, self.name)
+        _LOGGER.debug("Group %s (%s) turned off", self.group_id, self.name)
+
+    def register_listener(
+        self,
+        event_type: CallbackEventType,
+        listener: ListenerCallback,
+    ) -> Callable[[], None]:
+        """Register a listener for this group's events."""
+        return self._client.register_listener(event_type, listener)
+
+    async def read_group(self) -> Dict[str, Any]:
+        """Read this group's information from the gateway."""
+        return await self._client.read_group(self.group_id, self.channel)

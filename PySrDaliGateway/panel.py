@@ -43,7 +43,7 @@ class Panel(Device):
             properties=properties,
         )
         self._panel_config = PANEL_CONFIGS.get(
-            self._dev_type, {"button_count": 1, "events": ["press"]}
+            self.dev_type, {"button_count": 1, "events": ["press"]}
         )
 
     @property

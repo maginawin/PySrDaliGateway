@@ -1,7 +1,7 @@
 """Dali Gateway Types"""
 
 from enum import Enum
-from typing import Callable, List, Tuple, TypedDict
+from typing import Callable, List, Tuple, TypedDict, Union
 
 
 class CallbackEventType(Enum):
@@ -127,10 +127,14 @@ class EnergyData(TypedDict):
     yearEnergy: dict  # Yearly energy consumption data
     monthEnergy: dict  # Monthly energy consumption data
     dayEnergy: dict  # Daily energy consumption data
-    hourEnergy: list  # Hourly energy consumption data
 
 
-LightStatusCallback = Callable[[LightStatus], None]
-PanelStatusCallback = Callable[[PanelStatus], None]
-MotionStatusCallback = Callable[[MotionStatus], None]
-IlluminanceStatusCallback = Callable[[IlluminanceStatus], None]
+ListenerCallback = Union[
+    Callable[[str, bool], None],
+    Callable[[str, LightStatus], None],
+    Callable[[str, MotionStatus], None],
+    Callable[[str, IlluminanceStatus], None],
+    Callable[[str, PanelStatus], None],
+    Callable[[str, float], None],
+    Callable[[str, EnergyData], None],
+]
