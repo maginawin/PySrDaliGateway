@@ -127,6 +127,7 @@ class EnergyData(TypedDict):
     yearEnergy: dict  # Yearly energy consumption data
     monthEnergy: dict  # Monthly energy consumption data
     dayEnergy: dict  # Daily energy consumption data
+    hourEnergy: list  # Hourly energy consumption data
 
 
 ListenerCallback = Union[

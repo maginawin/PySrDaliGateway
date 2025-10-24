@@ -2,7 +2,7 @@
 # pylint: disable=invalid-name
 
 from .__version__ import __version__
-from .device import Device
+from .device import AllLightsController, Device
 from .gateway import DaliGateway
 from .group import Group
 from .panel import Panel
@@ -19,6 +19,7 @@ from .types import (
 )
 
 __all__ = [
+    "AllLightsController",
     "CallbackEventType",
     "DaliGateway",
     "Device",

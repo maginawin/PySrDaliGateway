@@ -224,3 +224,29 @@ class Device:
     ) -> Callable[[], None]:
         """Register a listener for this device's events."""
         return self._client.register_listener(event_type, listener)
+
+class AllLightsController(Device):
+    """Controller for all lights on a gateway using DALI broadcast address."""
+
+    def __init__(
+        self,
+        command_client: SupportsDeviceCommands,
+        devices: Iterable[Device],
+    ) -> None:
+        """Initialize the all lights controller."""
+        super().__init__(
+            command_client=command_client,
+            unique_id=f"{command_client.gw_sn}_all_lights",
+            dev_id=command_client.gw_sn,
+            name="All Lights",
+            dev_type="FFFF",
+            channel=0,
+            address=1,
+            status="online",
+            dev_sn=command_client.gw_sn,
+            area_name="",
+            area_id="",
+            model="All Lights Controller",
+            properties=[],
+        )
+        self.devices = devices
