@@ -7,7 +7,7 @@ name = "PySrDaliGateway"
 version = "0.13.0"
 description = "Python library for Sunricher DALI Gateway (EDA)"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = {text = "Apache-2.0"}
 authors = [{name = "Sunricher"}]
 requires-python = ">=3.8"
 dependencies = [
