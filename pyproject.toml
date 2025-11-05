@@ -26,7 +26,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/sunricher/PySrDaliGateway"
+Homepage = "https://github.com/maginawin/PySrDaliGateway"
 
 [tool.setuptools.packages.find]
 include = ["PySrDaliGateway*"]
