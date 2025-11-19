@@ -125,9 +125,7 @@ class Group:
         listener: ListenerCallback,
     ) -> Callable[[], None]:
         """Register a listener for this group's events."""
-        return self._client.register_listener(
-            event_type, listener, dev_id=self.gw_sn
-        )
+        return self._client.register_listener(event_type, listener, dev_id=self.gw_sn)
 
     async def read_group(self) -> Dict[str, Any]:
         """Read this group's information from the gateway."""
