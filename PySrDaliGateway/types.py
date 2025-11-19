@@ -131,11 +131,11 @@ class EnergyData(TypedDict):
 
 
 ListenerCallback = Union[
-    Callable[[str, bool], None],
-    Callable[[str, LightStatus], None],
-    Callable[[str, MotionStatus], None],
-    Callable[[str, IlluminanceStatus], None],
-    Callable[[str, PanelStatus], None],
-    Callable[[str, float], None],
-    Callable[[str, EnergyData], None],
+    Callable[[bool], None],
+    Callable[[LightStatus], None],
+    Callable[[MotionStatus], None],
+    Callable[[IlluminanceStatus], None],
+    Callable[[PanelStatus], None],
+    Callable[[float], None],
+    Callable[[EnergyData], None],
 ]

@@ -124,18 +124,19 @@ class DaliGateway:
         self._read_scene_received = asyncio.Event()
         self._read_scene_result: Dict[str, Any] | None = None
 
-        # Multi-listener support
-        self._listeners: Dict[CallbackEventType, List[Callable[..., None]]] = {
-            CallbackEventType.ONLINE_STATUS: [],
-            CallbackEventType.LIGHT_STATUS: [],
-            CallbackEventType.MOTION_STATUS: [],
-            CallbackEventType.ILLUMINANCE_STATUS: [],
-            CallbackEventType.PANEL_STATUS: [],
-            CallbackEventType.ENERGY_REPORT: [],
-            CallbackEventType.ENERGY_DATA: [],
-            CallbackEventType.SENSOR_ON_OFF: [],
+        # Device-specific listeners: {event_type: {dev_id: [listeners]}}
+        self._device_listeners: Dict[
+            CallbackEventType, Dict[str, List[Callable[..., None]]]
+        ] = {
+            CallbackEventType.ONLINE_STATUS: {},
+            CallbackEventType.LIGHT_STATUS: {},
+            CallbackEventType.MOTION_STATUS: {},
+            CallbackEventType.ILLUMINANCE_STATUS: {},
+            CallbackEventType.PANEL_STATUS: {},
+            CallbackEventType.ENERGY_REPORT: {},
+            CallbackEventType.ENERGY_DATA: {},
+            CallbackEventType.SENSOR_ON_OFF: {},
         }
-        self._background_tasks: set[asyncio.Task[None]] = set()
 
         self._window_ms = 100
         self._pending_requests: Dict[str, Dict[str, Dict[str, Any]]] = {}
@@ -235,22 +236,31 @@ class DaliGateway:
         self,
         event_type: CallbackEventType,
         listener: Union[
-            Callable[[str, bool], None],
-            Callable[[str, LightStatus], None],
-            Callable[[str, MotionStatus], None],
-            Callable[[str, IlluminanceStatus], None],
-            Callable[[str, PanelStatus], None],
-            Callable[[str, float], None],
-            Callable[[str, EnergyData], None],
+            Callable[[bool], None],
+            Callable[[LightStatus], None],
+            Callable[[MotionStatus], None],
+            Callable[[IlluminanceStatus], None],
+            Callable[[PanelStatus], None],
+            Callable[[float], None],
+            Callable[[EnergyData], None],
         ],
+        dev_id: str,
     ) -> Callable[[], None]:
-        """Register a listener for a specific event type."""
-        if event_type not in self._listeners:
+        """Register a listener for a specific event type.
+
+        Args:
+            event_type: The type of event to listen for
+            listener: The callback function to invoke
+            dev_id: Device ID to filter events for (required)
+        """
+        if event_type not in self._device_listeners:
             return lambda: None
 
-        self._listeners[event_type].append(listener)
-
-        return lambda: self._listeners[event_type].remove(listener)
+        # Register device-specific listener
+        if dev_id not in self._device_listeners[event_type]:
+            self._device_listeners[event_type][dev_id] = []
+        self._device_listeners[event_type][dev_id].append(listener)
+        return lambda: self._device_listeners[event_type][dev_id].remove(listener)
 
     def _notify_listeners(
         self,
@@ -267,13 +277,9 @@ class DaliGateway:
         ],
     ) -> None:
         """Notify all registered listeners for a specific event type."""
-        for listener in self._listeners.get(event_type, []):
-            if asyncio.iscoroutinefunction(listener):
-                task = asyncio.create_task(listener(dev_id, data))
-                self._background_tasks.add(task)
-                task.add_done_callback(self._background_tasks.discard)
-            else:
-                listener(dev_id, data)
+        # Notify device-specific listeners - no dev_id parameter needed since filtered
+        for listener in self._device_listeners.get(event_type, {}).get(dev_id, []):
+            listener(data)
 
     def _on_connect(
         self,
@@ -298,7 +304,15 @@ class DaliGateway:
                 "Gateway %s: Subscribed to MQTT topic %s", self._gw_sn, self._sub_topic
             )
 
+            # Notify gateway-level listeners
             self._notify_listeners(CallbackEventType.ONLINE_STATUS, self._gw_sn, True)
+            # Notify all device-specific listeners that gateway is online
+            for device_id in self._device_listeners[CallbackEventType.ONLINE_STATUS]:
+                if device_id != self._gw_sn:
+                    for listener in self._device_listeners[
+                        CallbackEventType.ONLINE_STATUS
+                    ][device_id]:
+                        listener(True)
         else:
             _LOGGER.error(
                 "Gateway %s: MQTT connection failed with code %s", self._gw_sn, rc
@@ -333,7 +347,15 @@ class DaliGateway:
         else:
             _LOGGER.debug("Gateway %s: MQTT disconnection completed", self._gw_sn)
 
+        # Notify gateway-level listeners
         self._notify_listeners(CallbackEventType.ONLINE_STATUS, self._gw_sn, False)
+        # Notify all device-specific listeners that gateway is offline
+        for device_id in self._device_listeners[CallbackEventType.ONLINE_STATUS]:
+            if device_id != self._gw_sn:
+                for listener in self._device_listeners[CallbackEventType.ONLINE_STATUS][
+                    device_id
+                ]:
+                    listener(False)
 
     def _on_message(
         self, client: paho_mqtt.Client, userdata: Any, msg: paho_mqtt.MQTTMessage
@@ -781,7 +803,7 @@ class DaliGateway:
         context.load_verify_locations(str(CA_CERT_PATH))
         context.check_hostname = False
         context.verify_mode = ssl.CERT_REQUIRED
-        self._mqtt_client.tls_set_context(context)
+        self._mqtt_client.tls_set_context(context)  # pyright: ignore[reportUnknownMemberType]
         _LOGGER.debug("SSL/TLS configured with CA certificate: %s", CA_CERT_PATH)
 
     def get_credentials(self) -> tuple[str, str]:

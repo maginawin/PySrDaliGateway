@@ -202,7 +202,9 @@ class DaliGatewayTester:
 
         # Set up online status callback to track gateway status
         self.gateway.register_listener(
-            CallbackEventType.ONLINE_STATUS, self._on_online_status_callback
+            CallbackEventType.ONLINE_STATUS,
+            self._on_online_status_callback,
+            dev_id=self.gateway.gw_sn,
         )
 
         try:
@@ -630,67 +632,67 @@ class DaliGatewayTester:
             _LOGGER.info("✓ Read scene commands completed successfully")
             return True
 
-    def _on_online_status_callback(self, device_id: str, status: bool) -> None:
+    def _on_online_status_callback(self, status: bool) -> None:
         """Callback to track online status events."""
+        # Since callbacks are now device-specific, we need to capture the device_id via closure
+        device_id = self.gateway.gw_sn if self.gateway else "unknown"
         self.online_status_events.append((device_id, status))
-        if self.gateway and device_id == self.gateway.gw_sn:
+        _LOGGER.info(
+            "🔄 Gateway status changed: %s -> %s",
+            device_id,
+            "ONLINE" if status else "OFFLINE",
+        )
+
+    def _make_light_callback(self, device_id: str):
+        """Create a light status callback with device_id captured in closure."""
+
+        def on_light_status(status: LightStatus) -> None:
+            self.light_status_events.append((device_id, status))
+            _LOGGER.info("💡 Light status: %s -> %s", device_id, status)
+
+        return on_light_status
+
+    def _make_motion_callback(self, device_id: str):
+        """Create a motion status callback with device_id captured in closure."""
+
+        def on_motion_status(status: MotionStatus) -> None:
+            self.motion_status_events.append((device_id, status))
+            _LOGGER.info("🚶 Motion status: %s -> %s", device_id, status)
+
+        return on_motion_status
+
+    def _make_illuminance_callback(self, device_id: str):
+        """Create an illuminance status callback with device_id captured in closure."""
+
+        def on_illuminance_status(status: IlluminanceStatus) -> None:
+            self.illuminance_status_events.append((device_id, status))
             _LOGGER.info(
-                "🔄 Gateway status changed: %s -> %s",
+                "☀️ Illuminance status: %s -> %s lux (valid: %s)",
                 device_id,
-                "ONLINE" if status else "OFFLINE",
+                status.get("illuminance_value", "Unknown"),
+                status.get("is_valid", "Unknown"),
             )
-        else:
+
+        return on_illuminance_status
+
+    def _make_panel_callback(self, device_id: str):
+        """Create a panel status callback with device_id captured in closure."""
+
+        def on_panel_status(status: PanelStatus) -> None:
+            self.panel_status_events.append((device_id, status))
+            event_type = status["event_type"]
+            rotate_info = ""
+            if event_type == PanelEventType.ROTATE:
+                rotate_info = f" (rotate: {status.get('rotate_value', 0)})"
             _LOGGER.info(
-                "🔄 Device status: %s -> %s",
+                "🎛️ Panel status: %s -> Key %s %s%s",
                 device_id,
-                "ONLINE" if status else "OFFLINE",
+                status.get("key_no", "?"),
+                event_type.value,
+                rotate_info,
             )
 
-    def _on_light_status_callback(self, device_id: str, status: LightStatus) -> None:
-        """Callback to track light status events."""
-        self.light_status_events.append((device_id, status))
-        _LOGGER.info(
-            "💡 Light status: %s -> %s",
-            device_id,
-            status,
-        )
-
-    def _on_motion_status_callback(self, device_id: str, status: MotionStatus) -> None:
-        """Callback to track motion status events."""
-        self.motion_status_events.append((device_id, status))
-        _LOGGER.info(
-            "🚶 Motion status: %s -> %s",
-            device_id,
-            status,
-        )
-
-    def _on_illuminance_status_callback(
-        self, device_id: str, status: IlluminanceStatus
-    ) -> None:
-        """Callback to track illuminance status events."""
-        self.illuminance_status_events.append((device_id, status))
-        _LOGGER.info(
-            "☀️ Illuminance status: %s -> %s lux (valid: %s)",
-            device_id,
-            status.get("illuminance_value", "Unknown"),
-            status.get("is_valid", "Unknown"),
-        )
-
-    def _on_panel_status_callback(self, device_id: str, status: PanelStatus) -> None:
-        """Callback to track panel status events."""
-        self.panel_status_events.append((device_id, status))
-        event_type = status["event_type"]
-        rotate_info = ""
-        if event_type == PanelEventType.ROTATE:
-            rotate_info = f" (rotate: {status.get('rotate_value', 0)})"
-
-        _LOGGER.info(
-            "🎛️ Panel status: %s -> Key %s %s%s",
-            device_id,
-            status.get("key_no", "?"),
-            event_type.value,
-            rotate_info,
-        )
+        return on_panel_status
 
     async def test_gateway_status_sync(self) -> bool:
         """Test gateway status synchronization through online_status callback."""
@@ -791,28 +793,11 @@ class DaliGatewayTester:
         try:
             gateway = self._assert_gateway()
 
-            # Set up all callback handlers
-            gateway.register_listener(
-                CallbackEventType.LIGHT_STATUS, self._on_light_status_callback
-            )
-            gateway.register_listener(
-                CallbackEventType.MOTION_STATUS, self._on_motion_status_callback
-            )
-            gateway.register_listener(
-                CallbackEventType.ILLUMINANCE_STATUS,
-                self._on_illuminance_status_callback,
-            )
-            gateway.register_listener(
-                CallbackEventType.PANEL_STATUS, self._on_panel_status_callback
-            )
-
             # Clear previous events
             self.light_status_events.clear()
             self.motion_status_events.clear()
             self.illuminance_status_events.clear()
             self.panel_status_events.clear()
-
-            _LOGGER.info("✓ All device callbacks set up successfully")
 
             # Find different device types to test
             light_devices = [
@@ -840,6 +825,12 @@ class DaliGatewayTester:
             if light_devices:
                 _LOGGER.info("Testing light device callbacks...")
                 for device in light_devices[:3]:  # Test up to 3 light devices
+                    # Register callback for this specific device
+                    device.register_listener(
+                        CallbackEventType.LIGHT_STATUS,
+                        self._make_light_callback(device.dev_id),
+                    )
+
                     model_info = device.model or "N/A"
                     _LOGGER.info(
                         "Reading light device: %s (Channel %s, Address %s, Model: %s)",
@@ -857,6 +848,12 @@ class DaliGatewayTester:
             if motion_devices:
                 _LOGGER.info("Testing motion sensor callbacks...")
                 for device in motion_devices[:2]:  # Test up to 2 motion devices
+                    # Register callback for this specific device
+                    device.register_listener(
+                        CallbackEventType.MOTION_STATUS,
+                        self._make_motion_callback(device.dev_id),
+                    )
+
                     model_info = device.model or "N/A"
                     _LOGGER.info(
                         "Reading motion device: %s (Channel %s, Address %s, Model: %s)",
@@ -876,6 +873,12 @@ class DaliGatewayTester:
                 for device in illuminance_devices[
                     :2
                 ]:  # Test up to 2 illuminance devices
+                    # Register callback for this specific device
+                    device.register_listener(
+                        CallbackEventType.ILLUMINANCE_STATUS,
+                        self._make_illuminance_callback(device.dev_id),
+                    )
+
                     model_info = device.model or "N/A"
                     _LOGGER.info(
                         "Reading illuminance device: %s (Channel %s, Address %s, Model: %s)",
@@ -893,6 +896,12 @@ class DaliGatewayTester:
             if panel_devices:
                 _LOGGER.info("Testing panel callbacks...")
                 for device in panel_devices[:2]:  # Test up to 2 panel devices
+                    # Register callback for this specific device
+                    device.register_listener(
+                        CallbackEventType.PANEL_STATUS,
+                        self._make_panel_callback(device.dev_id),
+                    )
+
                     model_info = device.model or "N/A"
                     _LOGGER.info(
                         "Reading panel device: %s (Channel %s, Address %s, Model: %s)",
@@ -905,6 +914,8 @@ class DaliGatewayTester:
                         device.dev_type, device.channel, device.address
                     )
                     await asyncio.sleep(2)  # Wait for response
+
+            _LOGGER.info("✓ All device callbacks registered successfully")
 
             # Wait a bit more for any delayed responses
             _LOGGER.info("Waiting 5 seconds for final responses...")
