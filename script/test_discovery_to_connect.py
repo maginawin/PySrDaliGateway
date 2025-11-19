@@ -645,20 +645,25 @@ class DaliGatewayTester:
 
     def _make_light_callback(self, device_id: str):
         """Create a light status callback with device_id captured in closure."""
+
         def on_light_status(status: LightStatus) -> None:
             self.light_status_events.append((device_id, status))
             _LOGGER.info("💡 Light status: %s -> %s", device_id, status)
+
         return on_light_status
 
     def _make_motion_callback(self, device_id: str):
         """Create a motion status callback with device_id captured in closure."""
+
         def on_motion_status(status: MotionStatus) -> None:
             self.motion_status_events.append((device_id, status))
             _LOGGER.info("🚶 Motion status: %s -> %s", device_id, status)
+
         return on_motion_status
 
     def _make_illuminance_callback(self, device_id: str):
         """Create an illuminance status callback with device_id captured in closure."""
+
         def on_illuminance_status(status: IlluminanceStatus) -> None:
             self.illuminance_status_events.append((device_id, status))
             _LOGGER.info(
@@ -667,10 +672,12 @@ class DaliGatewayTester:
                 status.get("illuminance_value", "Unknown"),
                 status.get("is_valid", "Unknown"),
             )
+
         return on_illuminance_status
 
     def _make_panel_callback(self, device_id: str):
         """Create a panel status callback with device_id captured in closure."""
+
         def on_panel_status(status: PanelStatus) -> None:
             self.panel_status_events.append((device_id, status))
             event_type = status["event_type"]
@@ -684,6 +691,7 @@ class DaliGatewayTester:
                 event_type.value,
                 rotate_info,
             )
+
         return on_panel_status
 
     async def test_gateway_status_sync(self) -> bool:

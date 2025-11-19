@@ -125,7 +125,9 @@ class DaliGateway:
         self._read_scene_result: Dict[str, Any] | None = None
 
         # Device-specific listeners: {event_type: {dev_id: [listeners]}}
-        self._device_listeners: Dict[CallbackEventType, Dict[str, List[Callable[..., None]]]] = {
+        self._device_listeners: Dict[
+            CallbackEventType, Dict[str, List[Callable[..., None]]]
+        ] = {
             CallbackEventType.ONLINE_STATUS: {},
             CallbackEventType.LIGHT_STATUS: {},
             CallbackEventType.MOTION_STATUS: {},
@@ -307,7 +309,9 @@ class DaliGateway:
             # Notify all device-specific listeners that gateway is online
             for device_id in self._device_listeners[CallbackEventType.ONLINE_STATUS]:
                 if device_id != self._gw_sn:
-                    for listener in self._device_listeners[CallbackEventType.ONLINE_STATUS][device_id]:
+                    for listener in self._device_listeners[
+                        CallbackEventType.ONLINE_STATUS
+                    ][device_id]:
                         listener(True)
         else:
             _LOGGER.error(
@@ -348,7 +352,9 @@ class DaliGateway:
         # Notify all device-specific listeners that gateway is offline
         for device_id in self._device_listeners[CallbackEventType.ONLINE_STATUS]:
             if device_id != self._gw_sn:
-                for listener in self._device_listeners[CallbackEventType.ONLINE_STATUS][device_id]:
+                for listener in self._device_listeners[CallbackEventType.ONLINE_STATUS][
+                    device_id
+                ]:
                     listener(False)
 
     def _on_message(
@@ -797,7 +803,7 @@ class DaliGateway:
         context.load_verify_locations(str(CA_CERT_PATH))
         context.check_hostname = False
         context.verify_mode = ssl.CERT_REQUIRED
-        self._mqtt_client.tls_set_context(context) # pyright: ignore[reportUnknownMemberType]
+        self._mqtt_client.tls_set_context(context)  # pyright: ignore[reportUnknownMemberType]
         _LOGGER.debug("SSL/TLS configured with CA certificate: %s", CA_CERT_PATH)
 
     def get_credentials(self) -> tuple[str, str]:
