@@ -48,6 +48,7 @@ class SupportsDeviceCommands(Protocol):
         self,
         event_type: CallbackEventType,
         listener: ListenerCallback,
+        dev_id: str,
     ) -> Callable[[], None]:
         """Register a listener for a specific event type."""
         raise NotImplementedError
@@ -223,7 +224,7 @@ class Device:
         listener: ListenerCallback,
     ) -> Callable[[], None]:
         """Register a listener for this device's events."""
-        return self._client.register_listener(event_type, listener)
+        return self._client.register_listener(event_type, listener, dev_id=self.dev_id)
 
 
 class AllLightsController(Device):

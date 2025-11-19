@@ -20,6 +20,7 @@ class SupportsSceneCommands(Protocol):
         self,
         event_type: CallbackEventType,
         listener: ListenerCallback,
+        dev_id: str,
     ) -> Callable[[], None]:
         """Register a listener for a specific event type."""
         raise NotImplementedError
@@ -71,7 +72,7 @@ class Scene:
         listener: ListenerCallback,
     ) -> Callable[[], None]:
         """Register a listener for this scene's events."""
-        return self._client.register_listener(event_type, listener)
+        return self._client.register_listener(event_type, listener, dev_id=self.unique_id)
 
     async def read_scene(self) -> Dict[str, Any]:
         """Read this scene's information from the gateway."""
