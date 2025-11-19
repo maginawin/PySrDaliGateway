@@ -73,7 +73,7 @@ class Scene:
     ) -> Callable[[], None]:
         """Register a listener for this scene's events."""
         return self._client.register_listener(
-            event_type, listener, dev_id=self.unique_id
+            event_type, listener, dev_id=self.gw_sn
         )
 
     async def read_scene(self) -> Dict[str, Any]:
