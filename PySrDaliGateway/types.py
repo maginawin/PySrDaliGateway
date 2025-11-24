@@ -15,6 +15,8 @@ class CallbackEventType(Enum):
     ENERGY_REPORT = "energy_report"
     ENERGY_DATA = "energy_data"
     SENSOR_ON_OFF = "sensor_on_off"
+    DEV_PARAM = "dev_param"
+    SENSOR_PARAM = "sensor_param"
 
 
 class PanelEventType(Enum):
@@ -72,23 +74,44 @@ class VersionType(TypedDict):
     firmware: str
 
 
-class DeviceParamType(TypedDict):
-    # address: int
-    # fade_time: int
-    # fade_rate: int
-    # power_status: int
-    # system_failure_status: int
-    max_brightness: int
-    # min_brightness: int
-    # standby_power: int
-    # max_power: int
-    # cct_cool: int
-    # cct_warm: int
-    # phy_cct_cool: int
-    # phy_cct_warm: int
-    # step_cct: int
-    # temp_thresholds: int
-    # runtime_thresholds: int
+class DeviceParamType(TypedDict, total=False):
+    """Device parameter configuration type.
+
+    All fields are optional. Values outside specified ranges may be rejected by the gateway.
+    """
+
+    address: int  # New device address (1-64)
+    fade_time: int  # Fade time setting (0-15)
+    fade_rate: int  # Fade rate setting (0-15)
+    power_status: int  # Power-on status value (10-1000)
+    system_failure_status: int  # System failure status (0-254)
+    max_brightness: int  # Maximum brightness value (0-1000)
+    min_brightness: int  # Minimum brightness value (0-1000)
+    standby_power: int  # Standby power (watts)
+    max_power: int  # Maximum power (watts)
+    cct_cool: int  # Cool color temperature (Kelvin)
+    cct_warm: int  # Warm color temperature (Kelvin)
+    phy_cct_cool: int  # Physical cool color temperature (Kelvin)
+    phy_cct_warm: int  # Physical warm color temperature (Kelvin)
+    step_cct: int  # Color temperature step value (1-100)
+    temp_thresholds: int  # Temperature alarm threshold (Celsius)
+    runtime_thresholds: int  # Runtime alarm threshold (hours)
+    waring_runtime_max: int  # Runtime warning maximum (hours)
+    waring_temperature_max: int  # Temperature warning maximum (Celsius)
+
+
+class SensorParamType(TypedDict, total=False):
+    """Sensor parameter configuration type.
+
+    All fields are optional. Used for configuring motion/occupancy sensor parameters.
+    """
+
+    enable: bool  # Enable/disable sensor
+    occpy_time: int  # Occupancy time (0-255, 0=disabled)
+    report_time: int  # Report timer - repeat report event (0-255, 0=disabled)
+    down_time: int  # Hold time - delay before turning off (0-255, 0=disabled)
+    coverage: int  # Detection range (0-100)
+    sensitivity: int  # Sensitivity level (0-100)
 
 
 class PanelConfig(TypedDict):
@@ -138,4 +161,6 @@ ListenerCallback = Union[
     Callable[[PanelStatus], None],
     Callable[[float], None],
     Callable[[EnergyData], None],
+    Callable[[DeviceParamType], None],
+    Callable[[SensorParamType], None],
 ]
