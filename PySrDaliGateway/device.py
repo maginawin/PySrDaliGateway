@@ -5,7 +5,13 @@ import logging
 from typing import Any, Callable, Dict, Iterable, List, Protocol, Tuple
 
 from .const import COLOR_MODE_MAP
-from .types import CallbackEventType, DeviceProperty, ListenerCallback
+from .types import (
+    CallbackEventType,
+    DeviceParamType,
+    DeviceProperty,
+    ListenerCallback,
+    SensorParamType,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +48,24 @@ class SupportsDeviceCommands(Protocol):
     def command_get_sensor_on_off(
         self, dev_type: str, channel: int, address: int
     ) -> None:
+        raise NotImplementedError
+
+    def command_set_sensor_argv(
+        self, dev_type: str, channel: int, address: int, param: SensorParamType
+    ) -> None:
+        raise NotImplementedError
+
+    def command_get_sensor_argv(
+        self, dev_type: str, channel: int, address: int
+    ) -> None:
+        raise NotImplementedError
+
+    def command_set_dev_param(
+        self, dev_type: str, channel: int, address: int, param: DeviceParamType
+    ) -> None:
+        raise NotImplementedError
+
+    def command_get_dev_param(self, dev_type: str, channel: int, address: int) -> None:
         raise NotImplementedError
 
     def command_identify_dev(self, dev_type: str, channel: int, address: int) -> None:
@@ -230,6 +254,70 @@ class Device:
         )
         _LOGGER.debug(
             "Identifying device %s (%s)",
+            self.dev_id,
+            self.name,
+        )
+
+    def set_device_parameters(self, param: DeviceParamType) -> None:
+        """Set device parameters (fade time, fade rate, brightness limits, etc.).
+
+        Args:
+            param: Dictionary of device parameters to set. Only provided fields will be updated.
+                   Available parameters: fade_time, fade_rate, max_brightness, min_brightness,
+                   power_status, cct_cool, cct_warm, etc.
+        """
+        self._client.command_set_dev_param(
+            self.dev_type, self.channel, self.address, param
+        )
+        _LOGGER.debug(
+            "Setting device parameters for %s (%s): %s",
+            self.dev_id,
+            self.name,
+            param,
+        )
+
+    def get_device_parameters(self) -> None:
+        """Request device parameters from gateway.
+
+        The response will be delivered via DEV_PARAM event callback.
+        """
+        self._client.command_get_dev_param(self.dev_type, self.channel, self.address)
+        _LOGGER.debug(
+            "Requesting device parameters for %s (%s)",
+            self.dev_id,
+            self.name,
+        )
+
+    def set_sensor_parameters(self, param: SensorParamType) -> None:
+        """Set sensor parameters (occupancy time, sensitivity, coverage, etc.).
+
+        Args:
+            param: Dictionary of sensor parameters to set. Only provided fields will be updated.
+                   Available parameters: enable, occpy_time, report_time, down_time,
+                   coverage, sensitivity.
+
+        Note: This method is only applicable to motion/occupancy sensor devices.
+        """
+        self._client.command_set_sensor_argv(
+            self.dev_type, self.channel, self.address, param
+        )
+        _LOGGER.debug(
+            "Setting sensor parameters for %s (%s): %s",
+            self.dev_id,
+            self.name,
+            param,
+        )
+
+    def get_sensor_parameters(self) -> None:
+        """Request sensor parameters from gateway.
+
+        The response will be delivered via SENSOR_PARAM event callback.
+
+        Note: This method is only applicable to motion/occupancy sensor devices.
+        """
+        self._client.command_get_sensor_argv(self.dev_type, self.channel, self.address)
+        _LOGGER.debug(
+            "Requesting sensor parameters for %s (%s)",
             self.dev_id,
             self.name,
         )

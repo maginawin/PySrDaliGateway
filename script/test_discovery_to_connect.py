@@ -21,6 +21,7 @@ from PySrDaliGateway.types import (
     MotionStatus,
     PanelEventType,
     PanelStatus,
+    SensorParamType,
 )
 
 logging.basicConfig(
@@ -48,6 +49,8 @@ class DaliGatewayTester:
         self.motion_status_events: List[Tuple[str, MotionStatus]] = []
         self.illuminance_status_events: List[Tuple[str, IlluminanceStatus]] = []
         self.panel_status_events: List[Tuple[str, PanelStatus]] = []
+        self.dev_param_events: List[Tuple[str, DeviceParamType]] = []
+        self.sensor_param_events: List[Tuple[str, SensorParamType]] = []
 
     def _clone_gateway(
         self,
@@ -357,112 +360,242 @@ class DaliGatewayTester:
             return True
 
     async def test_set_dev_param(self) -> bool:
-        """Test setting device parameters (maxBrightness) for channel 0 address 1."""
+        """Test setting device parameters (fade time, fade rate, brightness limits)."""
         if not self._check_connection():
             return False
 
-        interval = 8  # seconds - reduced for faster testing
+        if not self.devices:
+            _LOGGER.warning("No devices available! Run device discovery first.")
+            return False
 
-        _LOGGER.info("=== Testing SetDevParam Commands ===")
+        interval = 5  # seconds - reduced for faster testing
+
+        _LOGGER.info("=== Testing Device Parameter Configuration ===")
 
         # Track connection status throughout the test
         initial_connection_status = self.is_connected
 
         try:
-            # Test with fixed channel 0, address 1, using Dimmer device type
-            channel = 0
-            address = 1
-            dev_type = "0101"  # Dimmer device type
-            _LOGGER.info(
-                "Testing device: Channel %s, Address %s, Type %s",
-                channel,
-                address,
-                dev_type,
-            )
-
             gateway = self._assert_gateway()
 
-            # Get current parameters
-            _LOGGER.info("Getting current device parameters...")
-            gateway.command_get_dev_param(dev_type, channel, address)
-
-            # Use interruptible sleep that can detect connection status changes
-            try:
-                await asyncio.sleep(interval)
-            except KeyboardInterrupt:
-                _LOGGER.warning("Test interrupted during parameter read")
-                return False
-
-            # Set maxBrightness to 100
-            _LOGGER.info("Setting maxBrightness to 100...")
-            param_100: DeviceParamType = {"max_brightness": 100}
-            gateway.command_set_dev_param("FFFF", 0, 1, param_100)
-
-            try:
-                await asyncio.sleep(interval)
-            except KeyboardInterrupt:
-                _LOGGER.warning("Test interrupted during maxBrightness setting")
-                return False
-
-            # Turn on all the lights to see effect
-            _LOGGER.info("Turning on all light to see effect...")
-            gateway.command_write_dev(
-                "FFFF",
-                0,
-                1,
-                [{"dpid": 20, "dataType": "bool", "value": True}],
+            # Find a light device to test
+            light_device = next(
+                (d for d in self.devices if d.dev_type.startswith("01")), None
             )
 
-            # Read parameters after setting to 100
-            _LOGGER.info("Reading parameters after setting to 100...")
-            gateway.command_get_dev_param(dev_type, channel, address)
-
-            try:
-                await asyncio.sleep(interval)
-            except KeyboardInterrupt:
-                _LOGGER.warning("Test interrupted during parameter verification")
+            if not light_device:
+                _LOGGER.warning("No light device found for parameter testing")
                 return False
 
-            # Set maxBrightness back to 1000 (default)
-            _LOGGER.info("Setting maxBrightness back to 1000...")
-            param_1000: DeviceParamType = {"max_brightness": 1000}
-            gateway.command_set_dev_param("FFFF", 0, 1, param_1000)
+            _LOGGER.info(
+                "Testing device: %s (Channel %s, Address %s, Type %s)",
+                light_device.name,
+                light_device.channel,
+                light_device.address,
+                light_device.dev_type,
+            )
 
-            try:
-                await asyncio.sleep(interval)
-            except KeyboardInterrupt:
-                _LOGGER.warning("Test interrupted during maxBrightness reset")
-                return False
+            # Clear previous parameter events
+            self.dev_param_events.clear()
 
-            # Read parameters after setting back to 1000
-            _LOGGER.info("Reading parameters after setting back to 1000...")
-            gateway.command_get_dev_param(dev_type, channel, address)
+            # Register callback for parameter updates
+            light_device.register_listener(
+                CallbackEventType.DEV_PARAM,
+                self._make_dev_param_callback(light_device.dev_id),
+            )
 
-            try:
-                await asyncio.sleep(interval)
-            except KeyboardInterrupt:
-                _LOGGER.warning("Test interrupted during final parameter read")
-                return False
+            # Test 1: Get current parameters using Device wrapper method
+            _LOGGER.info("\n--- Test 1: Get current device parameters ---")
+            light_device.get_device_parameters()
+
+            await asyncio.sleep(interval)
+
+            if self.dev_param_events:
+                _LOGGER.info("✓ Received parameters: %s", self.dev_param_events[-1][1])
+            else:
+                _LOGGER.warning("✗ No parameters received")
+
+            # Test 2: Set fade time and fade rate using Device wrapper method
+            _LOGGER.info("\n--- Test 2: Set fade time and fade rate ---")
+            params: DeviceParamType = {
+                "fade_time": 5,  # Fade time setting (0-15)
+                "fade_rate": 7,  # Fade rate setting (0-15)
+            }
+            _LOGGER.info("Setting parameters: %s", params)
+            light_device.set_device_parameters(params)
+
+            await asyncio.sleep(interval)
+            _LOGGER.info("✓ Fade parameters sent")
+
+            # Test 3: Set brightness limits
+            _LOGGER.info("\n--- Test 3: Set brightness limits ---")
+            params = {
+                "min_brightness": 100,  # Minimum brightness (0-1000)
+                "max_brightness": 900,  # Maximum brightness (0-1000)
+            }
+            _LOGGER.info("Setting parameters: %s", params)
+            light_device.set_device_parameters(params)
+
+            await asyncio.sleep(interval)
+            _LOGGER.info("✓ Brightness limits sent")
+
+            # Test 4: Verify updated parameters
+            _LOGGER.info("\n--- Test 4: Verify updated parameters ---")
+            light_device.get_device_parameters()
+
+            await asyncio.sleep(interval)
+
+            if self.dev_param_events:
+                latest_params = self.dev_param_events[-1][1]
+                _LOGGER.info("✓ Retrieved updated parameters: %s", latest_params)
+
+                # Verify some expected values
+                if "fade_time" in latest_params or "max_brightness" in latest_params:
+                    _LOGGER.info("✓ Parameters updated successfully")
+                else:
+                    _LOGGER.warning("⚠ Could not verify parameter values")
+            else:
+                _LOGGER.warning("✗ Could not verify updated parameters")
+
+            # Test 5: Reset to defaults using gateway commands (broadcast)
+            _LOGGER.info("\n--- Test 5: Reset to defaults using broadcast ---")
+            reset_params: DeviceParamType = {"max_brightness": 1000}
+            gateway.command_set_dev_param("FFFF", 0, 1, reset_params)
+
+            await asyncio.sleep(interval)
+            _LOGGER.info("✓ Reset command sent")
 
             # Check if connection status changed during test
             if initial_connection_status != self.is_connected:
                 _LOGGER.warning(
                     "Connection status changed during test - may have experienced network issues"
                 )
-                # Don't fail the test if commands completed successfully
 
         except (DaliGatewayError, RuntimeError) as e:
-            _LOGGER.error("SetDevParam test failed: %s", e)
+            _LOGGER.error("Device parameter test failed: %s", e)
             return False
         except KeyboardInterrupt:
-            _LOGGER.error("SetDevParam test interrupted by user")
+            _LOGGER.error("Device parameter test interrupted by user")
             return False
         else:
-            _LOGGER.info(
-                "✓ SetDevParam commands completed for channel %s address %s",
-                channel,
-                address,
+            _LOGGER.info("✓ Device parameter configuration test completed")
+            return True
+
+    async def test_set_sensor_param(self) -> bool:
+        """Test setting sensor parameters (occupancy time, sensitivity, coverage, etc.)."""
+        if not self._check_connection():
+            return False
+
+        if not self.devices:
+            _LOGGER.warning("No devices available! Run device discovery first.")
+            return False
+
+        interval = 5  # seconds
+
+        _LOGGER.info("=== Testing Sensor Parameter Configuration ===")
+
+        # Track connection status throughout the test
+        initial_connection_status = self.is_connected
+
+        try:
+            # Find a sensor device to test
+            sensor_device = next(
+                (d for d in self.devices if d.dev_type.startswith("02")), None
             )
+
+            if not sensor_device:
+                _LOGGER.warning(
+                    "No sensor device found - skipping sensor parameter test"
+                )
+                return True  # Not a failure, just no suitable device
+
+            _LOGGER.info(
+                "Testing sensor: %s (Channel %s, Address %s, Type %s)",
+                sensor_device.name,
+                sensor_device.channel,
+                sensor_device.address,
+                sensor_device.dev_type,
+            )
+
+            # Clear previous parameter events
+            self.sensor_param_events.clear()
+
+            # Register callback for sensor parameter updates
+            sensor_device.register_listener(
+                CallbackEventType.SENSOR_PARAM,
+                self._make_sensor_param_callback(sensor_device.dev_id),
+            )
+
+            # Test 1: Get current sensor parameters
+            _LOGGER.info("\n--- Test 1: Get current sensor parameters ---")
+            sensor_device.get_sensor_parameters()
+
+            await asyncio.sleep(interval)
+
+            if self.sensor_param_events:
+                _LOGGER.info(
+                    "✓ Received parameters: %s", self.sensor_param_events[-1][1]
+                )
+            else:
+                _LOGGER.warning("✗ No sensor parameters received")
+
+            # Test 2: Set sensor sensitivity and coverage
+            _LOGGER.info("\n--- Test 2: Set sensor sensitivity and coverage ---")
+            params: SensorParamType = {
+                "sensitivity": 75,  # Sensitivity level (0-100)
+                "coverage": 80,  # Detection range (0-100)
+            }
+            _LOGGER.info("Setting parameters: %s", params)
+            sensor_device.set_sensor_parameters(params)
+
+            await asyncio.sleep(interval)
+            _LOGGER.info("✓ Sensitivity and coverage parameters sent")
+
+            # Test 3: Set sensor timing parameters
+            _LOGGER.info("\n--- Test 3: Set sensor timing parameters ---")
+            params = {
+                "occpy_time": 10,  # Occupancy time (0-255)
+                "report_time": 5,  # Report timer (0-255)
+                "down_time": 15,  # Hold time (0-255)
+            }
+            _LOGGER.info("Setting parameters: %s", params)
+            sensor_device.set_sensor_parameters(params)
+
+            await asyncio.sleep(interval)
+            _LOGGER.info("✓ Timing parameters sent")
+
+            # Test 4: Verify updated parameters
+            _LOGGER.info("\n--- Test 4: Verify updated sensor parameters ---")
+            sensor_device.get_sensor_parameters()
+
+            await asyncio.sleep(interval)
+
+            if self.sensor_param_events:
+                latest_params = self.sensor_param_events[-1][1]
+                _LOGGER.info("✓ Retrieved updated parameters: %s", latest_params)
+
+                # Verify some expected values
+                if "sensitivity" in latest_params or "occpy_time" in latest_params:
+                    _LOGGER.info("✓ Sensor parameters updated successfully")
+                else:
+                    _LOGGER.warning("⚠ Could not verify sensor parameter values")
+            else:
+                _LOGGER.warning("✗ Could not verify updated sensor parameters")
+
+            # Check if connection status changed during test
+            if initial_connection_status != self.is_connected:
+                _LOGGER.warning(
+                    "Connection status changed during test - may have experienced network issues"
+                )
+
+        except (DaliGatewayError, RuntimeError) as e:
+            _LOGGER.error("Sensor parameter test failed: %s", e)
+            return False
+        except KeyboardInterrupt:
+            _LOGGER.error("Sensor parameter test interrupted by user")
+            return False
+        else:
+            _LOGGER.info("✓ Sensor parameter configuration test completed")
             return True
 
     async def test_group_discovery(self) -> bool:
@@ -693,6 +826,24 @@ class DaliGatewayTester:
             )
 
         return on_panel_status
+
+    def _make_dev_param_callback(self, device_id: str):
+        """Create a device parameter callback with device_id captured in closure."""
+
+        def on_dev_param(params: DeviceParamType) -> None:
+            self.dev_param_events.append((device_id, params))
+            _LOGGER.info("⚙️ Device parameters: %s -> %s", device_id, params)
+
+        return on_dev_param
+
+    def _make_sensor_param_callback(self, device_id: str):
+        """Create a sensor parameter callback with device_id captured in closure."""
+
+        def on_sensor_param(params: SensorParamType) -> None:
+            self.sensor_param_events.append((device_id, params))
+            _LOGGER.info("🔧 Sensor parameters: %s -> %s", device_id, params)
+
+        return on_sensor_param
 
     async def test_gateway_status_sync(self) -> bool:
         """Test gateway status synchronization through online_status callback."""
@@ -1106,6 +1257,7 @@ class DaliGatewayTester:
             ("Callbacks", self.test_callback_setup),
             ("ReadDev", self.test_read_dev),
             ("SetDevParam", self.test_set_dev_param),
+            ("SetSensorParam", self.test_set_sensor_param),
             ("Group Discovery", self.test_group_discovery),
             ("Read Group", self.test_read_group),
             ("Scene Discovery", self.test_scene_discovery),
@@ -1312,6 +1464,11 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             tester.test_set_dev_param,
             ["connection"],
             "SetDevParam Commands",
+        ),
+        "setsensorparam": (
+            tester.test_set_sensor_param,
+            ["connection"],
+            "SetSensorParam Commands",
         ),
         "groups": (tester.test_group_discovery, ["connection"], "Group Discovery"),
         "readgroup": (

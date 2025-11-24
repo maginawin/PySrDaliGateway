@@ -5,7 +5,7 @@ import json
 import logging
 import ssl
 import time
-from typing import Any, Callable, Dict, List, Sequence, Union
+from typing import Any, Callable, Dict, List, Sequence, Union, cast
 
 import paho.mqtt.client as paho_mqtt
 
@@ -46,6 +46,7 @@ from .types import (
     MotionStatus,
     PanelStatus,
     SceneDeviceType,
+    SensorParamType,
     VersionType,
 )
 
@@ -243,6 +244,8 @@ class DaliGateway:
             Callable[[PanelStatus], None],
             Callable[[float], None],
             Callable[[EnergyData], None],
+            Callable[[DeviceParamType], None],
+            Callable[[SensorParamType], None],
         ],
         dev_id: str,
     ) -> Callable[[], None]:
@@ -274,6 +277,8 @@ class DaliGateway:
             PanelStatus,
             float,
             EnergyData,
+            DeviceParamType,
+            SensorParamType,
         ],
     ) -> None:
         """Notify all registered listeners for a specific event type."""
@@ -394,7 +399,9 @@ class DaliGateway:
                 "getEnergyRes": self._process_get_energy_response,
                 "setSensorOnOffRes": self._process_set_sensor_on_off_response,
                 "getSensorOnOffRes": self._process_get_sensor_on_off_response,
-                "setDevParamRes": self._process_write_response,
+                "setSensorArgvRes": self._process_set_sensor_argv_response,
+                "getSensorArgvRes": self._process_get_sensor_argv_response,
+                "setDevParamRes": self._process_set_dev_param_response,
                 "getDevParamRes": self._process_get_dev_param_response,
             }
 
@@ -773,12 +780,139 @@ class DaliGateway:
 
         self._notify_listeners(CallbackEventType.SENSOR_ON_OFF, dev_id, value)
 
-    def _process_get_dev_param_response(self, payload: Dict[str, Any]) -> None:
+    def _process_set_sensor_argv_response(self, payload: Dict[str, Any]) -> None:
+        """Process setSensorArgv response."""
+        dev_type = payload.get("devType", "")
+        channel = payload.get("channel", 0)
+        address = payload.get("address", 0)
+        ack = payload.get("ack", False)
+
         _LOGGER.debug(
-            "Gateway %s: Received getDevParamRes response, payload: %s",
+            "Gateway %s: Received setSensorArgvRes response, "
+            "devType: %s, channel: %s, address: %s, ack: %s",
             self._gw_sn,
-            payload,
+            dev_type,
+            channel,
+            address,
+            ack,
         )
+
+    def _process_get_sensor_argv_response(self, payload: Dict[str, Any]) -> None:
+        """Process getSensorArgv response and emit parameters to listeners."""
+        dev_type = payload.get("devType", "")
+        channel = payload.get("channel", 0)
+        address = payload.get("address", 0)
+        data = payload.get("data", {})
+
+        _LOGGER.debug(
+            "Gateway %s: Received getSensorArgvRes response, "
+            "devType: %s, channel: %s, address: %s, data: %s",
+            self._gw_sn,
+            dev_type,
+            channel,
+            address,
+            data,
+        )
+
+        if not data:
+            return
+
+        # Convert camelCase protocol keys to snake_case Python keys
+        protocol_to_python = {
+            "enable": "enable",
+            "occpyTime": "occpy_time",
+            "reportTime": "report_time",
+            "downTime": "down_time",
+            "coverage": "coverage",
+            "sensitivity": "sensitivity",
+        }
+
+        # Build SensorParamType from response
+        sensor_param_dict: Dict[str, Any] = {}
+        for protocol_key, value in data.items():
+            python_key = protocol_to_python.get(protocol_key)
+            if python_key:
+                sensor_param_dict[python_key] = value
+
+        # Cast to SensorParamType for type safety
+        sensor_param = cast("SensorParamType", sensor_param_dict)
+
+        # Emit to listeners
+        dev_id = gen_device_unique_id(dev_type, channel, address, self._gw_sn)
+        self._notify_listeners(CallbackEventType.SENSOR_PARAM, dev_id, sensor_param)
+
+    def _process_set_dev_param_response(self, payload: Dict[str, Any]) -> None:
+        """Process setDevParam response."""
+        dev_type = payload.get("devType", "")
+        channel = payload.get("channel", 0)
+        address = payload.get("address", 0)
+        ack = payload.get("ack", False)
+
+        _LOGGER.debug(
+            "Gateway %s: Received setDevParamRes response, "
+            "devType: %s, channel: %s, address: %s, ack: %s",
+            self._gw_sn,
+            dev_type,
+            channel,
+            address,
+            ack,
+        )
+
+    def _process_get_dev_param_response(self, payload: Dict[str, Any]) -> None:
+        """Process getDevParam response and emit parameters to listeners."""
+        dev_type = payload.get("devType", "")
+        channel = payload.get("channel", 0)
+        address = payload.get("address", 0)
+        paramer = payload.get("paramer", {})
+
+        _LOGGER.debug(
+            "Gateway %s: Received getDevParamRes response, "
+            "devType: %s, channel: %s, address: %s, paramer: %s",
+            self._gw_sn,
+            dev_type,
+            channel,
+            address,
+            paramer,
+        )
+
+        if not paramer:
+            return
+
+        # Convert camelCase protocol keys to snake_case Python keys
+        protocol_to_python = {
+            "address": "address",
+            "fadeTime": "fade_time",
+            "fadeRate": "fade_rate",
+            "powerStatus": "power_status",
+            "systemFailureStatus": "system_failure_status",
+            "maxBrightness": "max_brightness",
+            "minBrightness": "min_brightness",
+            "standbyPower": "standby_power",
+            "maxPower": "max_power",
+            "cctCool": "cct_cool",
+            "cctWarm": "cct_warm",
+            "phyCctCool": "phy_cct_cool",
+            "phyCctWarm": "phy_cct_warm",
+            "stepCCT": "step_cct",
+            "tempThresholds": "temp_thresholds",
+            "runtimeThresholds": "runtime_thresholds",
+            "waringRuntimeMax": "waring_runtime_max",
+            "waringTemperatureMax": "waring_temperature_max",
+        }
+
+        # Build DeviceParamType from response
+        device_param_dict: Dict[str, Any] = {}
+        for protocol_key, value in paramer.items():
+            python_key = protocol_to_python.get(protocol_key)
+            if python_key:
+                device_param_dict[python_key] = value
+
+        # Cast to DeviceParamType for type safety
+        device_param = cast("DeviceParamType", device_param_dict)
+
+        # Emit to listeners
+        dev_id = gen_device_unique_id(dev_type, channel, address, self._gw_sn)
+        self._notify_listeners(CallbackEventType.DEV_PARAM, dev_id, device_param)
 
     def _process_restart_gateway_response(self, payload: Dict[str, Any]) -> None:
         ack = payload.get("ack", False)
@@ -1205,6 +1339,81 @@ class DaliGateway:
         command_json = json.dumps(command)
         self._mqtt_client.publish(self._pub_topic, command_json)
 
+    def command_set_sensor_argv(
+        self, dev_type: str, channel: int, address: int, param: SensorParamType
+    ) -> None:
+        """Set sensor parameters.
+
+        Args:
+            dev_type: Sensor device type code (e.g., "0201")
+            channel: DALI channel number
+            address: Device address
+            param: Dictionary of sensor parameters to set (only provided fields will be set)
+        """
+        # Build data dict dynamically from provided fields
+        # Convert snake_case Python keys to camelCase protocol keys
+        param_mapping = {
+            "enable": "enable",
+            "occpy_time": "occpyTime",
+            "report_time": "reportTime",
+            "down_time": "downTime",
+            "coverage": "coverage",
+            "sensitivity": "sensitivity",
+        }
+
+        # Convert TypedDict to regular dict for iteration
+        param_dict = dict(param)
+        data: Dict[str, Any] = {}
+        for python_key, protocol_key in param_mapping.items():
+            if python_key in param_dict:
+                data[protocol_key] = param_dict[python_key]
+
+        if not data:
+            _LOGGER.warning(
+                "Gateway %s: No valid parameters provided for setSensorArgv",
+                self._gw_sn,
+            )
+            return
+
+        command: Dict[str, Any] = {
+            "cmd": "setSensorArgv",
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+            "devType": dev_type,
+            "channel": channel,
+            "address": address,
+            "data": data,
+        }
+        command_json = json.dumps(command)
+        _LOGGER.debug(
+            "Gateway %s: Sending setSensorArgv command: %s", self._gw_sn, command
+        )
+        self._mqtt_client.publish(self._pub_topic, command_json)
+
+    def command_get_sensor_argv(
+        self, dev_type: str, channel: int, address: int
+    ) -> None:
+        """Get sensor parameters.
+
+        Args:
+            dev_type: Sensor device type code (e.g., "0201")
+            channel: DALI channel number
+            address: Device address
+        """
+        command: Dict[str, Any] = {
+            "cmd": "getSensorArgv",
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+            "devType": dev_type,
+            "channel": channel,
+            "address": address,
+        }
+        command_json = json.dumps(command)
+        _LOGGER.debug(
+            "Gateway %s: Sending getSensorArgv command: %s", self._gw_sn, command
+        )
+        self._mqtt_client.publish(self._pub_topic, command_json)
+
     def command_identify_dev(self, dev_type: str, channel: int, address: int) -> None:
         command: Dict[str, Any] = {
             "cmd": "identifyDev",
@@ -1235,6 +1444,50 @@ class DaliGateway:
     def command_set_dev_param(
         self, dev_type: str, channel: int, address: int, param: DeviceParamType
     ) -> None:
+        """Set device parameters.
+
+        Args:
+            dev_type: Device type code (e.g., "0101")
+            channel: DALI channel number
+            address: Device address
+            param: Dictionary of device parameters to set (only provided fields will be set)
+        """
+        # Build paramer dict dynamically from provided fields
+        # Convert snake_case Python keys to camelCase protocol keys
+        param_mapping = {
+            "address": "address",
+            "fade_time": "fadeTime",
+            "fade_rate": "fadeRate",
+            "power_status": "powerStatus",
+            "system_failure_status": "systemFailureStatus",
+            "max_brightness": "maxBrightness",
+            "min_brightness": "minBrightness",
+            "standby_power": "standbyPower",
+            "max_power": "maxPower",
+            "cct_cool": "cctCool",
+            "cct_warm": "cctWarm",
+            "phy_cct_cool": "phyCctCool",
+            "phy_cct_warm": "phyCctWarm",
+            "step_cct": "stepCCT",
+            "temp_thresholds": "tempThresholds",
+            "runtime_thresholds": "runtimeThresholds",
+            "waring_runtime_max": "waringRuntimeMax",
+            "waring_temperature_max": "waringTemperatureMax",
+        }
+
+        # Convert TypedDict to regular dict for iteration
+        param_dict = dict(param)
+        paramer: Dict[str, Any] = {}
+        for python_key, protocol_key in param_mapping.items():
+            if python_key in param_dict:
+                paramer[protocol_key] = param_dict[python_key]
+
+        if not paramer:
+            _LOGGER.warning(
+                "Gateway %s: No valid parameters provided for setDevParam", self._gw_sn
+            )
+            return
+
         command: Dict[str, Any] = {
             "cmd": "setDevParam",
             "msgId": str(int(time.time())),
@@ -1244,9 +1497,7 @@ class DaliGateway:
                     "devType": dev_type,
                     "channel": channel,
                     "address": address,
-                    "paramer": {
-                        "maxBrightness": param["max_brightness"],
-                    },
+                    "paramer": paramer,
                 }
             ],
         }
