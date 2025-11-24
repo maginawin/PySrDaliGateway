@@ -504,7 +504,9 @@ class DaliGatewayTester:
             )
 
             if not sensor_device:
-                _LOGGER.warning("No sensor device found - skipping sensor parameter test")
+                _LOGGER.warning(
+                    "No sensor device found - skipping sensor parameter test"
+                )
                 return True  # Not a failure, just no suitable device
 
             _LOGGER.info(
@@ -531,7 +533,9 @@ class DaliGatewayTester:
             await asyncio.sleep(interval)
 
             if self.sensor_param_events:
-                _LOGGER.info("✓ Received parameters: %s", self.sensor_param_events[-1][1])
+                _LOGGER.info(
+                    "✓ Received parameters: %s", self.sensor_param_events[-1][1]
+                )
             else:
                 _LOGGER.warning("✗ No sensor parameters received")
 
@@ -539,7 +543,7 @@ class DaliGatewayTester:
             _LOGGER.info("\n--- Test 2: Set sensor sensitivity and coverage ---")
             params: SensorParamType = {
                 "sensitivity": 75,  # Sensitivity level (0-100)
-                "coverage": 80,     # Detection range (0-100)
+                "coverage": 80,  # Detection range (0-100)
             }
             _LOGGER.info("Setting parameters: %s", params)
             sensor_device.set_sensor_parameters(params)
@@ -550,9 +554,9 @@ class DaliGatewayTester:
             # Test 3: Set sensor timing parameters
             _LOGGER.info("\n--- Test 3: Set sensor timing parameters ---")
             params = {
-                "occpy_time": 10,   # Occupancy time (0-255)
-                "report_time": 5,   # Report timer (0-255)
-                "down_time": 15,    # Hold time (0-255)
+                "occpy_time": 10,  # Occupancy time (0-255)
+                "report_time": 5,  # Report timer (0-255)
+                "down_time": 15,  # Hold time (0-255)
             }
             _LOGGER.info("Setting parameters: %s", params)
             sensor_device.set_sensor_parameters(params)
