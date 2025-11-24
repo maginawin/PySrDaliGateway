@@ -82,9 +82,10 @@ class MessageCryptor:
         msg_enc = self.encrypt_data("discover", key)
         combined_data = key + msg_enc
         cmd = self.encrypt_data(combined_data, self.SR_KEY)
-        message_dict = {"cmd": cmd, "type": "HA", "snList": []}
-        if gw_sn:
-            message_dict["snList"] = [gw_sn]
+
+        message_dict: Dict[str, Any] = {"cmd": cmd, "type": "HA"}
+        if gw_sn is not None:
+            message_dict = {**message_dict, "snList": [gw_sn]}
 
         _LOGGER.debug("Prepared discovery message: %s", message_dict)
         message_json = json.dumps(message_dict)
@@ -222,14 +223,20 @@ class DaliGatewayDiscovery:
         listen_sock = self.sender.create_listener_socket(interfaces)
 
         try:
-            gateways = await self._run_discovery(listen_sock, interfaces, message)
+            gateways = await self._run_discovery(
+                listen_sock, interfaces, message, gw_sn
+            )
             _LOGGER.info("Discovery completed. Found %d gateway(s)", len(gateways))
             return gateways
         finally:
             self.sender.cleanup_socket(listen_sock, interfaces)
 
     async def _run_discovery(
-        self, sock: socket.socket, interfaces: List[Dict[str, Any]], message: bytes
+        self,
+        sock: socket.socket,
+        interfaces: List[Dict[str, Any]],
+        message: bytes,
+        gw_sn: str | None = None,
     ) -> List[DaliGateway]:
         start_time = asyncio.get_event_loop().time()
         first_gateway_found = asyncio.Event()
@@ -244,7 +251,7 @@ class DaliGatewayDiscovery:
         # Receiver task
         receiver_task = asyncio.create_task(
             self._receiver_loop(
-                sock, first_gateway_found, start_time, unique_gateways, seen_sns
+                sock, first_gateway_found, start_time, unique_gateways, seen_sns, gw_sn
             )
         )
 
@@ -299,6 +306,7 @@ class DaliGatewayDiscovery:
         start_time: float,
         unique_gateways: List[DaliGateway],
         seen_sns: Set[str],
+        gw_sn: str | None = None,
     ) -> None:
         _LOGGER.debug("Starting receiver loop, listening on socket")
 
@@ -317,7 +325,7 @@ class DaliGatewayDiscovery:
                 raw_data = response_json.get("data")
 
                 if raw_data and raw_data.get("gwSn") not in seen_sns:
-                    if gateway := self._process_gateway_data(raw_data):
+                    if gateway := self._process_gateway_data(raw_data, gw_sn):
                         _LOGGER.info(
                             "Discovered gateway: %s (%s) at %s:%s",
                             gateway.name,
@@ -352,7 +360,9 @@ class DaliGatewayDiscovery:
                 )
                 break
 
-    def _process_gateway_data(self, raw_data: Any) -> DaliGateway | None:
+    def _process_gateway_data(
+        self, raw_data: Any, requested_gw_sn: str | None = None
+    ) -> DaliGateway | None:
         gw_sn = raw_data.get("gwSn")
         if not gw_sn:
             _LOGGER.warning("Gateway data missing required 'gwSn' field")
@@ -362,6 +372,14 @@ class DaliGatewayDiscovery:
 
         encrypted_user = raw_data.get("username", "")
         encrypted_pass = raw_data.get("passwd", "")
+
+        # Skip gateway with empty credentials if no specific gateway was requested
+        if not encrypted_user and not encrypted_pass and requested_gw_sn is None:
+            _LOGGER.debug(
+                "Skipping gateway %s with empty credentials (no specific gateway requested)",
+                gw_sn,
+            )
+            return None
 
         try:
             decrypted_user = self.cryptor.decrypt_data(

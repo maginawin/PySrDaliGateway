@@ -995,6 +995,91 @@ class DaliGatewayTester:
             _LOGGER.info("✓ Gateway restart test completed")
             return True
 
+    async def test_identify_gateway(self) -> bool:
+        """Test gateway identify command (makes gateway LED blink)."""
+        if not self._check_connection():
+            return False
+
+        _LOGGER.info("=== Testing Gateway Identify Command ===")
+        _LOGGER.info("The gateway's indicator LED should blink to identify itself.")
+
+        try:
+            gateway = self._assert_gateway()
+
+            _LOGGER.info("Sending identify command to gateway...")
+            gateway.identify_gateway()
+
+            # Wait a moment to allow the LED to blink
+            _LOGGER.info(
+                "Waiting for gateway LED to blink (observe the physical device)..."
+            )
+            await asyncio.sleep(5)
+
+            _LOGGER.info("✓ Identify command sent successfully")
+            _LOGGER.info(
+                "Check if the gateway's LED blinked to confirm identification."
+            )
+
+        except (DaliGatewayError, RuntimeError) as e:
+            _LOGGER.error("Gateway identify test failed: %s", e)
+            return False
+        else:
+            _LOGGER.info("✓ Gateway identify test completed")
+            return True
+
+    async def test_identify_device(self, device_limit: int | None = None) -> bool:
+        """Test device identify command (makes device LED blink)."""
+        if not self._check_connection():
+            return False
+
+        if not self.devices:
+            _LOGGER.error("No devices available! Run device discovery first.")
+            return False
+
+        _LOGGER.info("=== Testing Device Identify Commands ===")
+        _LOGGER.info("Each device's indicator LED should blink to identify itself.")
+
+        try:
+            devices_to_test = self.devices
+            if device_limit:
+                devices_to_test = self.devices[:device_limit]
+            else:
+                # Default to testing first 3 devices if no limit specified
+                devices_to_test = self.devices[:3]
+
+            for i, device in enumerate(devices_to_test, 1):
+                model_info = device.model or "N/A"
+                _LOGGER.info(
+                    "Identifying device %d/%d: %s (Channel %s, Address %s, Model: %s)",
+                    i,
+                    len(devices_to_test),
+                    device.name,
+                    device.channel,
+                    device.address,
+                    model_info,
+                )
+
+                # Send identify command
+                device.identify()
+
+                # Wait to allow LED to blink
+                _LOGGER.info(
+                    "  Waiting for device LED to blink (observe the physical device)..."
+                )
+                await asyncio.sleep(3)
+
+        except (DaliGatewayError, RuntimeError) as e:
+            _LOGGER.error("Device identify test failed: %s", e)
+            return False
+        else:
+            _LOGGER.info(
+                "✓ Identify commands sent for %d device(s)", len(devices_to_test)
+            )
+            _LOGGER.info(
+                "Check if each device's LED blinked to confirm identification."
+            )
+            return True
+
     def _check_connection(self) -> bool:
         """Check if gateway is connected."""
         if not self.gateway or not self.is_connected:
@@ -1105,6 +1190,8 @@ Examples:
             "scenes",
             "readscene",
             "callbacks",
+            "identifygateway",
+            "identifydevice",
             "restart",
             "all",
         ],
@@ -1243,6 +1330,16 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             ["connection", "devices"],
             "Device Callbacks",
         ),
+        "identifygateway": (
+            tester.test_identify_gateway,
+            ["connection"],
+            "Identify Gateway",
+        ),
+        "identifydevice": (
+            lambda: tester.test_identify_device(args.device_limit),
+            ["connection", "devices"],
+            "Identify Devices",
+        ),
         "restart": (tester.test_restart_gateway, ["connection"], "Gateway Restart"),
     }
 
@@ -1261,6 +1358,8 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             "readgroup",
             "scenes",
             "readscene",
+            "identifygateway",
+            "identifydevice",
             "reconnection",
             "restart",
             "disconnect",
@@ -1373,6 +1472,8 @@ async def main() -> bool:
             "scenes": "Discover DALI scenes",
             "readscene": "Read scene details with device list and property values",
             "callbacks": "Test device status callbacks (light, motion, illuminance, panel)",
+            "identifygateway": "Identify gateway (makes gateway LED blink)",
+            "identifydevice": "Identify devices (makes device LEDs blink)",
             "restart": "Restart gateway (WARNING: gateway will disconnect)",
             "all": "Run complete test suite",
         }
