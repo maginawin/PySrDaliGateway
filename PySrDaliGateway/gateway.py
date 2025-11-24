@@ -923,6 +923,17 @@ class DaliGateway:
         )
         return self._version_result
 
+    def identify_gateway(self) -> None:
+        """Make the gateway's indicator light blink to identify it physically."""
+        command: Dict[str, Any] = {
+            "cmd": "identifyDev",
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+        }
+        command_json = json.dumps(command)
+        self._mqtt_client.publish(self._pub_topic, command_json)
+        _LOGGER.debug("Identifying gateway %s", self._gw_sn)
+
     async def read_group(self, group_id: int, channel: int = 0) -> Dict[str, Any]:
         self._read_group_received = asyncio.Event()
         payload: Dict[str, Any] = {
@@ -1190,6 +1201,20 @@ class DaliGateway:
             "devType": dev_type,
             "channel": channel,
             "address": address,
+        }
+        command_json = json.dumps(command)
+        self._mqtt_client.publish(self._pub_topic, command_json)
+
+    def command_identify_dev(self, dev_type: str, channel: int, address: int) -> None:
+        command: Dict[str, Any] = {
+            "cmd": "identifyDev",
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+            "data": {
+                "devType": dev_type,
+                "channel": channel,
+                "address": address,
+            },
         }
         command_json = json.dumps(command)
         self._mqtt_client.publish(self._pub_topic, command_json)
