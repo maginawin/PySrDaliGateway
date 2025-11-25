@@ -65,14 +65,14 @@ async def main() -> bool:
         _LOGGER.info("Log file: %s", log_file)
         _LOGGER.info("=" * 60)
 
-        return success
-
     except KeyboardInterrupt:
         _LOGGER.error("Testing interrupted by user")
         return False
     except (DaliGatewayError, RuntimeError, asyncio.TimeoutError) as e:
         _LOGGER.error("Unexpected error during testing: %s", e)
         return False
+
+    return success
 
 
 if __name__ == "__main__":
