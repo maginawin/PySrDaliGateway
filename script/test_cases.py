@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Modular test script for PySrDaliGateway with configurable test selection."""
+"""Test cases for DALI Gateway functionality."""
 
-import argparse
 import asyncio
 import logging
-import sys
-from typing import Any, Callable, Dict, List, Set, Tuple
+from typing import Dict, List, Tuple
+
+from test_helpers import IdentifyResponseListener, TestDaliGateway
 
 from PySrDaliGateway.device import Device
 from PySrDaliGateway.discovery import DaliGatewayDiscovery
@@ -23,10 +23,7 @@ from PySrDaliGateway.types import (
     PanelStatus,
     SensorParamType,
 )
-
-logging.basicConfig(
-    level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+from PySrDaliGateway.udp_client import send_identify_gateway
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,7 +57,7 @@ class DaliGatewayTester:
         passwd: str | None = None,
     ) -> DaliGateway:
         """Create a detached copy of a gateway with optional credential overrides."""
-        return DaliGateway(
+        return TestDaliGateway(
             gw_sn=gateway.gw_sn,
             gw_ip=gateway.gw_ip,
             port=gateway.port,
@@ -85,7 +82,7 @@ class DaliGatewayTester:
         """Create gateway configuration directly without discovery (testing mode)."""
         _LOGGER.info("=== Testing Mode: Creating Gateway Configuration Directly ===")
 
-        gateway = DaliGateway(
+        gateway = TestDaliGateway(
             gw_sn=gw_sn,
             gw_ip=gw_ip,
             port=port,
@@ -422,9 +419,15 @@ class DaliGatewayTester:
                 "fade_rate": 7,  # Fade rate setting (0-15)
             }
             _LOGGER.info("Setting parameters: %s", params)
+
+            # Clear events before sending
+            self.dev_param_events.clear()
             light_device.set_device_parameters(params)
 
             await asyncio.sleep(interval)
+
+            # Note: setDevParamRes may not return the set values, just ack
+            # We verify by reading back the parameters in Test 4
             _LOGGER.info("✓ Fade parameters sent")
 
             # Test 3: Set brightness limits
@@ -441,6 +444,7 @@ class DaliGatewayTester:
 
             # Test 4: Verify updated parameters
             _LOGGER.info("\n--- Test 4: Verify updated parameters ---")
+            self.dev_param_events.clear()
             light_device.get_device_parameters()
 
             await asyncio.sleep(interval)
@@ -453,9 +457,13 @@ class DaliGatewayTester:
                 if "fade_time" in latest_params or "max_brightness" in latest_params:
                     _LOGGER.info("✓ Parameters updated successfully")
                 else:
-                    _LOGGER.warning("⚠ Could not verify parameter values")
+                    _LOGGER.error("✗ Could not verify parameter values")
+                    return False
             else:
-                _LOGGER.warning("✗ Could not verify updated parameters")
+                _LOGGER.error(
+                    "✗ Could not verify updated parameters - no response received"
+                )
+                return False
 
             # Test 5: Reset to defaults using gateway commands (broadcast)
             _LOGGER.info("\n--- Test 5: Reset to defaults using broadcast ---")
@@ -566,6 +574,7 @@ class DaliGatewayTester:
 
             # Test 4: Verify updated parameters
             _LOGGER.info("\n--- Test 4: Verify updated sensor parameters ---")
+            self.sensor_param_events.clear()
             sensor_device.get_sensor_parameters()
 
             await asyncio.sleep(interval)
@@ -578,9 +587,13 @@ class DaliGatewayTester:
                 if "sensitivity" in latest_params or "occpy_time" in latest_params:
                     _LOGGER.info("✓ Sensor parameters updated successfully")
                 else:
-                    _LOGGER.warning("⚠ Could not verify sensor parameter values")
+                    _LOGGER.error("✗ Could not verify sensor parameter values")
+                    return False
             else:
-                _LOGGER.warning("✗ Could not verify updated sensor parameters")
+                _LOGGER.error(
+                    "✗ Could not verify updated sensor parameters - no response received"
+                )
+                return False
 
             # Check if connection status changed during test
             if initial_connection_status != self.is_connected:
@@ -1147,35 +1160,70 @@ class DaliGatewayTester:
             return True
 
     async def test_identify_gateway(self) -> bool:
-        """Test gateway identify command (makes gateway LED blink)."""
-        if not self._check_connection():
-            return False
+        """Test gateway identify command (makes gateway LED blink).
 
+        Note: Gateway identify uses UDP multicast, not MQTT.
+        This test does NOT require MQTT connection - it works directly after discovery.
+        """
         _LOGGER.info("=== Testing Gateway Identify Command ===")
         _LOGGER.info("The gateway's indicator LED should blink to identify itself.")
+        _LOGGER.info("Note: This command is sent via UDP multicast (not MQTT)")
+
+        if not self.gateways:
+            _LOGGER.error("No gateways discovered! Run discovery first.")
+            return False
 
         try:
-            gateway = self._assert_gateway()
+            # Test identify for each discovered gateway
+            for gateway in self.gateways:
+                _LOGGER.info(
+                    "Testing identify for gateway: %s (%s)", gateway.name, gateway.gw_sn
+                )
 
-            _LOGGER.info("Sending identify command to gateway...")
-            gateway.identify_gateway()
+                # Create response listener
+                listener = IdentifyResponseListener(gateway.gw_sn)
 
-            # Wait a moment to allow the LED to blink
-            _LOGGER.info(
-                "Waiting for gateway LED to blink (observe the physical device)..."
-            )
-            await asyncio.sleep(5)
+                _LOGGER.info("Starting UDP response listener...")
+                _LOGGER.info("Sending identify command to gateway via UDP...")
 
-            _LOGGER.info("✓ Identify command sent successfully")
-            _LOGGER.info(
-                "Check if the gateway's LED blinked to confirm identification."
-            )
+                # Start listener and send command concurrently
+                listener_task = asyncio.create_task(
+                    listener.wait_for_response(timeout=10.0)
+                )
+
+                # Small delay to ensure listener is ready
+                await asyncio.sleep(0.5)
+
+                # Send identify command directly via UDP
+                await send_identify_gateway(gateway.gw_sn)
+
+                # Wait for response
+                _LOGGER.info("Waiting for UDP response from gateway...")
+                ack_received = await listener_task
+
+                if ack_received:
+                    _LOGGER.info(
+                        "✓ Received UDP response with ack=True from gateway %s",
+                        gateway.gw_sn,
+                    )
+                    _LOGGER.info(
+                        "The gateway should blink its LED to confirm identification."
+                    )
+                else:
+                    _LOGGER.error(
+                        "No UDP response received from gateway %s within timeout",
+                        gateway.gw_sn,
+                    )
+                    _LOGGER.error(
+                        "Gateway identify test failed: UDP response not detected"
+                    )
+                    return False
 
         except (DaliGatewayError, RuntimeError) as e:
             _LOGGER.error("Gateway identify test failed: %s", e)
             return False
         else:
-            _LOGGER.info("✓ Gateway identify test completed")
+            _LOGGER.info("✓ Gateway identify test completed for all gateways")
             return True
 
     async def test_identify_device(self, device_limit: int | None = None) -> bool:
@@ -1191,6 +1239,15 @@ class DaliGatewayTester:
         _LOGGER.info("Each device's indicator LED should blink to identify itself.")
 
         try:
+            gateway = self._assert_gateway()
+
+            # Ensure we have a TestDaliGateway instance
+            if not isinstance(gateway, TestDaliGateway):
+                _LOGGER.error(
+                    "Gateway is not a TestDaliGateway instance, cannot verify responses"
+                )
+                return False
+
             devices_to_test = self.devices
             if device_limit:
                 devices_to_test = self.devices[:device_limit]
@@ -1198,6 +1255,7 @@ class DaliGatewayTester:
                 # Default to testing first 3 devices if no limit specified
                 devices_to_test = self.devices[:3]
 
+            success_count = 0
             for i, device in enumerate(devices_to_test, 1):
                 model_info = device.model or "N/A"
                 _LOGGER.info(
@@ -1213,23 +1271,29 @@ class DaliGatewayTester:
                 # Send identify command
                 device.identify()
 
-                # Wait to allow LED to blink
-                _LOGGER.info(
-                    "  Waiting for device LED to blink (observe the physical device)..."
-                )
-                await asyncio.sleep(3)
+                # Wait for response
+                _LOGGER.info("  Waiting for identify response...")
+                ack_received = await gateway.wait_for_identify_response(timeout=5.0)
+
+                if ack_received:
+                    _LOGGER.info("  ✓ Identify response received with ack=True")
+                    success_count += 1
+                else:
+                    _LOGGER.error("  ✗ Identify response not received or ack=False")
 
         except (DaliGatewayError, RuntimeError) as e:
             _LOGGER.error("Device identify test failed: %s", e)
             return False
         else:
             _LOGGER.info(
-                "✓ Identify commands sent for %d device(s)", len(devices_to_test)
+                "✓ Identify test completed: %d/%d devices responded successfully",
+                success_count,
+                len(devices_to_test),
             )
             _LOGGER.info(
                 "Check if each device's LED blinked to confirm identification."
             )
-            return True
+            return success_count > 0
 
     def _check_connection(self) -> bool:
         """Check if gateway is connected."""
@@ -1243,435 +1307,3 @@ class DaliGatewayTester:
         if not self.gateway or not self.is_connected:
             raise RuntimeError("Gateway not connected")
         return self.gateway
-
-    async def run_all_tests(self) -> bool:
-        """Run all tests in proper sequence."""
-        _LOGGER.info("=== Starting Complete DALI Gateway Test Suite ===")
-
-        tests: List[Tuple[str, Callable[[], Any]]] = [
-            ("Discovery", self.test_discovery),
-            ("Connection", lambda: self.test_connection(0)),
-            ("Gateway Status Sync", self.test_gateway_status_sync),
-            ("Version", self.test_version),
-            ("Device Discovery", self.test_device_discovery),
-            ("Callbacks", self.test_callback_setup),
-            ("ReadDev", self.test_read_dev),
-            ("SetDevParam", self.test_set_dev_param),
-            ("SetSensorParam", self.test_set_sensor_param),
-            ("Group Discovery", self.test_group_discovery),
-            ("Read Group", self.test_read_group),
-            ("Scene Discovery", self.test_scene_discovery),
-            ("Reconnection", self.test_reconnection),
-            ("Restart Gateway", self.test_restart_gateway),
-            ("Disconnect", self.test_disconnect),
-        ]
-
-        async def run_single_test(test_name: str, test_func: Callable[[], Any]) -> bool:
-            try:
-                result = await test_func()
-            except KeyboardInterrupt:
-                _LOGGER.error("❌ %s test interrupted by user", test_name)
-                return False
-            except (DaliGatewayError, RuntimeError, asyncio.TimeoutError) as e:
-                _LOGGER.error("❌ %s test failed with exception: %s", test_name, e)
-                return False
-            else:
-                if not result:
-                    _LOGGER.error("❌ %s test failed", test_name)
-                else:
-                    _LOGGER.info("✅ %s test passed", test_name)
-                return result
-
-        results: Dict[str, bool] = {}
-        for test_name, test_func in tests:
-            results[test_name] = await run_single_test(test_name, test_func)
-
-        passed = sum(1 for r in results.values() if r)
-        total = len(results)
-
-        _LOGGER.info("=== Test Summary ===")
-        _LOGGER.info("Passed: %d/%d tests", passed, total)
-
-        for test_name, result in results.items():
-            status = "✅" if result else "❌"
-            _LOGGER.info("%s %s", status, test_name)
-
-        success = passed == total
-        if success:
-            _LOGGER.info("🎉 All tests completed successfully!")
-        else:
-            _LOGGER.error("❌ Some tests failed!")
-
-        return success
-
-
-def parse_arguments():
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Modular DALI Gateway Testing Tool",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s                              # Run all tests with discovery
-  %(prog)s --tests discovery connection # Run only discovery and connection tests
-  %(prog)s --list-tests                 # List available tests
-  %(prog)s --device-limit 5             # Limit device operations to 5 devices
-  %(prog)s --gateway-index 1            # Connect to second discovered gateway
-
-  # Testing mode (skip discovery):
-  %(prog)s --direct-sn GW123456 --direct-ip 192.168.1.100 --direct-username admin --direct-passwd password123
-  %(prog)s --direct-sn GW789012 --direct-ip 192.168.1.101 --direct-port 8883 --direct-username user --direct-passwd secret --direct-tls
-        """,
-    )
-
-    parser.add_argument(
-        "--tests",
-        nargs="+",
-        choices=[
-            "discovery",
-            "connection",
-            "disconnect",
-            "reconnection",
-            "statusync",
-            "version",
-            "devices",
-            "readdev",
-            "setdevparam",
-            "groups",
-            "readgroup",
-            "scenes",
-            "readscene",
-            "callbacks",
-            "identifygateway",
-            "identifydevice",
-            "restart",
-            "all",
-        ],
-        default=["all"],
-        help="Tests to run (default: all)",
-    )
-
-    parser.add_argument(
-        "--list-tests", action="store_true", help="List available tests and exit"
-    )
-
-    parser.add_argument(
-        "--gateway-index",
-        type=int,
-        default=0,
-        help="Gateway index to connect to (default: 0)",
-    )
-
-    parser.add_argument(
-        "--device-limit",
-        type=int,
-        help="Limit number of devices for testing (default: all devices)",
-    )
-
-    parser.add_argument(
-        "--gateway-sn", type=str, help="Specific gateway serial number to discover"
-    )
-
-    # Testing mode arguments for skip discovery
-    testing_group = parser.add_argument_group(
-        "testing mode (skip discovery)",
-        "Use these arguments to bypass discovery and connect directly",
-    )
-    testing_group.add_argument(
-        "--direct-sn", type=str, help="Gateway serial number (testing mode)"
-    )
-    testing_group.add_argument(
-        "--direct-ip", type=str, help="Gateway IP address (testing mode)"
-    )
-    testing_group.add_argument(
-        "--direct-port",
-        type=int,
-        default=1883,
-        help="Gateway MQTT port (testing mode, default: 1883)",
-    )
-    testing_group.add_argument(
-        "--direct-username", type=str, help="Gateway username (testing mode)"
-    )
-    testing_group.add_argument(
-        "--direct-passwd", type=str, help="Gateway password (testing mode)"
-    )
-    testing_group.add_argument(
-        "--direct-tls", action="store_true", help="Use TLS connection (testing mode)"
-    )
-    testing_group.add_argument(
-        "--direct-name", type=str, help="Gateway name (testing mode, optional)"
-    )
-
-    return parser.parse_args()
-
-
-async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
-    """Run selected tests with dependency management."""
-
-    # Check if using testing mode (direct configuration)
-    using_testing_mode = all(
-        [
-            args.direct_sn,
-            args.direct_ip,
-            args.direct_username,
-            args.direct_passwd,
-        ]
-    )
-
-    # Available tests with dependencies
-    test_registry: Dict[str, Tuple[Callable[[], Any], List[str], str]] = {
-        "discovery": (
-            lambda: tester.create_gateway_direct(
-                args.direct_sn,
-                args.direct_ip,
-                args.direct_port,
-                args.direct_username,
-                args.direct_passwd,
-                args.direct_tls,
-                args.direct_name,
-            )
-            if using_testing_mode
-            else tester.test_discovery(),
-            [],
-            "Gateway Discovery"
-            if not using_testing_mode
-            else "Gateway Direct Configuration",
-        ),
-        "connection": (
-            lambda: tester.test_connection(args.gateway_index),
-            ["discovery"],
-            "Gateway Connection",
-        ),
-        "disconnect": (tester.test_disconnect, ["connection"], "Gateway Disconnect"),
-        "reconnection": (
-            tester.test_reconnection,
-            ["connection"],
-            "Reconnection Cycle",
-        ),
-        "statusync": (
-            tester.test_gateway_status_sync,
-            ["connection"],
-            "Gateway Status Sync",
-        ),
-        "version": (tester.test_version, ["connection"], "Version Retrieval"),
-        "devices": (tester.test_device_discovery, ["connection"], "Device Discovery"),
-        "readdev": (
-            lambda: tester.test_read_dev(args.device_limit),
-            ["connection", "devices"],
-            "ReadDev Commands",
-        ),
-        "setdevparam": (
-            tester.test_set_dev_param,
-            ["connection"],
-            "SetDevParam Commands",
-        ),
-        "setsensorparam": (
-            tester.test_set_sensor_param,
-            ["connection"],
-            "SetSensorParam Commands",
-        ),
-        "groups": (tester.test_group_discovery, ["connection"], "Group Discovery"),
-        "readgroup": (
-            tester.test_read_group,
-            ["connection", "groups"],
-            "Read Group Details",
-        ),
-        "scenes": (tester.test_scene_discovery, ["connection"], "Scene Discovery"),
-        "readscene": (
-            tester.test_read_scene,
-            ["connection", "scenes"],
-            "Read Scene Details",
-        ),
-        "callbacks": (
-            tester.test_callback_setup,
-            ["connection", "devices"],
-            "Device Callbacks",
-        ),
-        "identifygateway": (
-            tester.test_identify_gateway,
-            ["connection"],
-            "Identify Gateway",
-        ),
-        "identifydevice": (
-            lambda: tester.test_identify_device(args.device_limit),
-            ["connection", "devices"],
-            "Identify Devices",
-        ),
-        "restart": (tester.test_restart_gateway, ["connection"], "Gateway Restart"),
-    }
-
-    # Determine which tests to run
-    if "all" in args.tests:
-        selected_tests = [
-            "discovery",
-            "connection",
-            "statusync",
-            "version",
-            "devices",
-            "callbacks",
-            "readdev",
-            "setdevparam",
-            "groups",
-            "readgroup",
-            "scenes",
-            "readscene",
-            "identifygateway",
-            "identifydevice",
-            "reconnection",
-            "restart",
-            "disconnect",
-        ]
-    else:
-        selected_tests = args.tests
-
-    # Build execution plan with dependencies
-    execution_plan: List[Tuple[str, Callable[[], Any], str]] = []
-    completed_tests: Set[str] = set()
-
-    def add_test_with_deps(test_name: str):
-        if test_name in completed_tests or test_name in [t[0] for t in execution_plan]:
-            return
-
-        if test_name not in test_registry:
-            _LOGGER.error("Unknown test: %s", test_name)
-            return
-
-        test_func, dependencies, description = test_registry[test_name]
-
-        # Add dependencies first
-        for dep in dependencies:
-            add_test_with_deps(dep)
-
-        execution_plan.append((test_name, test_func, description))
-
-    # Build execution plan
-    for test_name in selected_tests:
-        add_test_with_deps(test_name)
-
-    # Execute tests
-    _LOGGER.info("=== Test Execution Plan ===")
-    for test_name, _, description in execution_plan:
-        _LOGGER.info("- %s (%s)", description, test_name)
-
-    results: Dict[str, bool] = {}
-    for test_name, test_func, description in execution_plan:
-        _LOGGER.info("\n🧪 Running: %s", description)
-        try:
-            # Special handling for discovery with gateway_sn parameter
-            if test_name == "discovery" and args.gateway_sn:
-                result = await tester.test_discovery(args.gateway_sn)
-            else:
-                result = await test_func()
-
-            results[test_name] = result
-            completed_tests.add(test_name)
-
-            if result:
-                _LOGGER.info("✅ %s completed successfully", description)
-            else:
-                _LOGGER.error("❌ %s failed", description)
-                # Stop execution if critical test fails
-                if test_name in ["discovery", "connection"]:
-                    _LOGGER.error("Critical test failed, stopping execution")
-                    break
-        except KeyboardInterrupt:
-            _LOGGER.error("❌ %s interrupted by user", description)
-            results[test_name] = False
-            # Always stop on user interrupt
-            break
-        except (DaliGatewayError, RuntimeError, asyncio.TimeoutError) as e:
-            _LOGGER.error("❌ %s failed with exception: %s", description, e)
-            results[test_name] = False
-            # Stop on critical failures
-            if test_name in ["discovery", "connection"]:
-                break
-
-    # Summary
-    passed = sum(1 for r in results.values() if r)
-    total = len(results)
-
-    _LOGGER.info("\n=== Test Summary ===")
-    _LOGGER.info("Executed: %d/%d planned tests", total, len(execution_plan))
-    _LOGGER.info("Passed: %d/%d executed tests", passed, total)
-
-    for test_name, result in results.items():
-        status = "✅" if result else "❌"
-        description = test_registry[test_name][2]
-        _LOGGER.info("%s %s", status, description)
-
-    success = passed == total == len(execution_plan)
-    if success:
-        _LOGGER.info("🎉 All requested tests completed successfully!")
-    else:
-        _LOGGER.error("❌ Some tests failed or were not executed!")
-
-    return success
-
-
-async def main() -> bool:
-    """Main entry point."""
-    args = parse_arguments()
-
-    if args.list_tests:
-        print("Available tests:")
-        tests = {
-            "discovery": "Discover DALI gateways on network",
-            "connection": "Connect to discovered gateway",
-            "disconnect": "Disconnect from gateway",
-            "reconnection": "Test disconnect/reconnect cycle",
-            "statusync": "Test gateway status synchronization via online_status callback",
-            "version": "Get gateway firmware version",
-            "devices": "Discover connected DALI devices",
-            "readdev": "Read device status via MQTT",
-            "setdevparam": "Set device parameters (maxBrightness)",
-            "groups": "Discover DALI groups",
-            "readgroup": "Read group details with device list",
-            "scenes": "Discover DALI scenes",
-            "readscene": "Read scene details with device list and property values",
-            "callbacks": "Test device status callbacks (light, motion, illuminance, panel)",
-            "identifygateway": "Identify gateway (makes gateway LED blink)",
-            "identifydevice": "Identify devices (makes device LEDs blink)",
-            "restart": "Restart gateway (WARNING: gateway will disconnect)",
-            "all": "Run complete test suite",
-        }
-
-        for test_name, description in tests.items():
-            print(f"  {test_name:<12} - {description}")
-        return True
-
-    # Validate testing mode arguments
-    testing_mode_args = [
-        args.direct_sn,
-        args.direct_ip,
-        args.direct_username,
-        args.direct_passwd,
-    ]
-    partial_testing_mode = any(testing_mode_args) and not all(testing_mode_args)
-
-    if partial_testing_mode:
-        _LOGGER.error(
-            "Testing mode requires all of: --direct-sn, --direct-ip, --direct-username, --direct-passwd"
-        )
-        return False
-
-    if all(testing_mode_args):
-        _LOGGER.info("Running in testing mode (skip discovery)")
-        _LOGGER.info(
-            "Gateway: %s at %s:%s", args.direct_sn, args.direct_ip, args.direct_port
-        )
-
-    try:
-        tester = DaliGatewayTester()
-        return await run_selected_tests(tester, args)
-
-    except KeyboardInterrupt:
-        _LOGGER.error("Testing interrupted by user")
-        return False
-    except (DaliGatewayError, RuntimeError, asyncio.TimeoutError) as e:
-        _LOGGER.error("Unexpected error during testing: %s", e)
-        return False
-
-
-if __name__ == "__main__":
-    success = asyncio.run(main())
-    sys.exit(0 if success else 1)

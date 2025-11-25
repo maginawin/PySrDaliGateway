@@ -7,12 +7,11 @@ import json
 import logging
 import socket
 from typing import Any, Dict, List, Set
-import uuid
 
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import psutil
 
 from .gateway import DaliGateway
+from .udp_client import MessageCryptor, MulticastSender
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,142 +50,6 @@ class NetworkManager:
 
     def create_interface_info(self, name: str, ip: str) -> Dict[str, Any]:
         return {"name": name, "address": ip, "network": f"{ip}/24"}
-
-
-class MessageCryptor:
-    """Message encryption and decryption handler"""
-
-    SR_KEY: str = "SR-DALI-GW-HASYS"
-    ENCRYPTION_IV: bytes = b"0000000000101111"
-
-    def encrypt_data(self, data: str, key: str) -> str:
-        key_bytes = key.encode("utf-8")
-        cipher = Cipher(algorithms.AES(key_bytes), modes.CTR(self.ENCRYPTION_IV))
-        encryptor = cipher.encryptor()
-        encrypted_data = encryptor.update(data.encode("utf-8")) + encryptor.finalize()
-        return encrypted_data.hex()
-
-    def decrypt_data(self, encrypted_hex: str, key: str) -> str:
-        key_bytes = key.encode("utf-8")
-        encrypted_bytes = bytes.fromhex(encrypted_hex)
-        cipher = Cipher(algorithms.AES(key_bytes), modes.CTR(self.ENCRYPTION_IV))
-        decryptor = cipher.decryptor()
-        decrypted_data = decryptor.update(encrypted_bytes) + decryptor.finalize()
-        return decrypted_data.decode("utf-8")
-
-    def random_key(self) -> str:
-        return uuid.uuid4().hex[:16]
-
-    def prepare_discovery_message(self, gw_sn: str | None = None) -> bytes:
-        key = self.random_key()
-        msg_enc = self.encrypt_data("discover", key)
-        combined_data = key + msg_enc
-        cmd = self.encrypt_data(combined_data, self.SR_KEY)
-
-        message_dict: Dict[str, Any] = {"cmd": cmd, "type": "HA"}
-        if gw_sn is not None:
-            message_dict = {**message_dict, "snList": [gw_sn]}
-
-        _LOGGER.debug("Prepared discovery message: %s", message_dict)
-        message_json = json.dumps(message_dict)
-        return message_json.encode("utf-8")
-
-
-class MulticastSender:
-    """Multicast communication manager"""
-
-    MULTICAST_ADDR: str = "239.255.255.250"
-    SEND_PORT: int = 1900
-    LISTEN_PORT: int = 50569
-
-    def create_listener_socket(self, interfaces: List[Dict[str, Any]]) -> socket.socket:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        with contextlib.suppress(AttributeError, OSError):
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        self._bind_to_port(sock)
-        self._join_multicast_groups(sock, interfaces)
-        sock.setblocking(False)
-        return sock
-
-    def cleanup_socket(
-        self, sock: socket.socket, interfaces: List[Dict[str, Any]]
-    ) -> None:
-        mreq_list = []
-        for interface in interfaces:
-            mreq = socket.inet_aton(self.MULTICAST_ADDR) + socket.inet_aton(
-                interface["address"]
-            )
-            mreq_list.append(mreq)
-        for mreq in mreq_list:
-            with contextlib.suppress(OSError):
-                sock.setsockopt(socket.IPPROTO_IP, socket.IP_DROP_MEMBERSHIP, mreq)
-        sock.close()
-
-    async def send_multicast_message(
-        self, interfaces: List[Dict[str, Any]], message: bytes
-    ) -> None:
-        tasks = [
-            asyncio.create_task(self._send_on_interface(interface, message))
-            for interface in interfaces
-        ]
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-    def _bind_to_port(self, sock: socket.socket) -> None:
-        ports_to_try = [
-            self.LISTEN_PORT,
-            *range(self.LISTEN_PORT + 1, self.LISTEN_PORT + 10),
-            0,
-        ]
-
-        def try_bind_port(port: int) -> bool:
-            try:
-                sock.bind(("0.0.0.0", port))
-            except OSError:
-                _LOGGER.debug("Port %d unavailable, trying next port", port)
-                return False
-            else:
-                _LOGGER.debug("Successfully bound listener socket to port %d", port)
-                return True
-
-        for port in ports_to_try:
-            if try_bind_port(port):
-                return
-
-        _LOGGER.error("Unable to bind to any port after trying all options")
-        raise OSError("Unable to bind to any port")
-
-    def _join_multicast_groups(
-        self, sock: socket.socket, interfaces: List[Dict[str, Any]]
-    ) -> None:
-        _LOGGER.debug("Joining multicast groups on %d interfaces", len(interfaces))
-
-        for interface in interfaces:
-            mreq = socket.inet_aton(self.MULTICAST_ADDR) + socket.inet_aton(
-                interface["address"]
-            )
-            with contextlib.suppress(OSError):
-                sock.setsockopt(socket.IPPROTO_IP, socket.IP_DROP_MEMBERSHIP, mreq)
-
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-            _LOGGER.debug(
-                "Joined multicast group on interface %s (%s)",
-                interface["name"],
-                interface["address"],
-            )
-
-    async def _send_on_interface(
-        self, interface: Dict[str, Any], message: bytes
-    ) -> None:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            sock.bind((interface["address"], 0))
-            sock.setsockopt(
-                socket.IPPROTO_IP,
-                socket.IP_MULTICAST_IF,
-                socket.inet_aton(interface["address"]),
-            )
-            sock.sendto(message, (self.MULTICAST_ADDR, self.SEND_PORT))
 
 
 class DaliGatewayDiscovery:

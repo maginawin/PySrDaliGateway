@@ -49,6 +49,7 @@ from .types import (
     SensorParamType,
     VersionType,
 )
+from .udp_client import send_identify_gateway
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -403,6 +404,7 @@ class DaliGateway:
                 "getSensorArgvRes": self._process_get_sensor_argv_response,
                 "setDevParamRes": self._process_set_dev_param_response,
                 "getDevParamRes": self._process_get_dev_param_response,
+                "identifyDevRes": self._process_identify_dev_response,
             }
 
             handler = command_handlers.get(cmd)
@@ -922,6 +924,18 @@ class DaliGateway:
             ack,
         )
 
+    def _process_identify_dev_response(self, payload: Dict[str, Any]) -> None:
+        """Process identifyDev response."""
+        msg_id = payload.get("msgId")
+        ack = payload.get("ack", False)
+
+        _LOGGER.debug(
+            "Gateway %s: Received identify device response, msgId: %s, ack: %s",
+            self._gw_sn,
+            msg_id,
+            ack,
+        )
+
     async def _setup_ssl(self) -> None:
         try:
             loop = asyncio.get_event_loop()
@@ -1057,16 +1071,13 @@ class DaliGateway:
         )
         return self._version_result
 
-    def identify_gateway(self) -> None:
-        """Make the gateway's indicator light blink to identify it physically."""
-        command: Dict[str, Any] = {
-            "cmd": "identifyDev",
-            "msgId": str(int(time.time())),
-            "gwSn": self._gw_sn,
-        }
-        command_json = json.dumps(command)
-        self._mqtt_client.publish(self._pub_topic, command_json)
-        _LOGGER.debug("Identifying gateway %s", self._gw_sn)
+    async def identify_gateway(self) -> None:
+        """Make the gateway's indicator light blink to identify it physically.
+
+        This command is sent via UDP multicast (not MQTT) according to the protocol specification.
+        """
+        _LOGGER.debug("Sending identify command to gateway %s via UDP", self._gw_sn)
+        await send_identify_gateway(self._gw_sn)
 
     async def read_group(self, group_id: int, channel: int = 0) -> Dict[str, Any]:
         self._read_group_received = asyncio.Event()
