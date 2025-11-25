@@ -31,6 +31,44 @@ logging.basicConfig(
 _LOGGER = logging.getLogger(__name__)
 
 
+class TestDaliGateway(DaliGateway):
+    """Extended DaliGateway with response tracking for testing."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Track identify responses
+        self._identify_received = asyncio.Event()
+        self._identify_ack: bool = False
+
+    def _process_identify_dev_response(self, payload: Dict[str, Any]) -> None:
+        """Override to track identify responses for testing."""
+        # Call parent implementation
+        super()._process_identify_dev_response(payload)
+
+        # Track response for testing
+        self._identify_ack = payload.get("ack", False)
+        self._identify_received.set()
+
+    async def wait_for_identify_response(self, timeout: float = 5.0) -> bool:
+        """Wait for identify response and return ack status.
+
+        Args:
+            timeout: Maximum time to wait for response in seconds
+
+        Returns:
+            True if ack was received, False otherwise
+        """
+        self._identify_received.clear()
+        self._identify_ack = False
+
+        try:
+            await asyncio.wait_for(self._identify_received.wait(), timeout=timeout)
+            return self._identify_ack
+        except asyncio.TimeoutError:
+            _LOGGER.warning("Timeout waiting for identify response")
+            return False
+
+
 class DaliGatewayTester:
     """Modular tester for DALI Gateway functionality."""
 
@@ -60,7 +98,7 @@ class DaliGatewayTester:
         passwd: str | None = None,
     ) -> DaliGateway:
         """Create a detached copy of a gateway with optional credential overrides."""
-        return DaliGateway(
+        return TestDaliGateway(
             gw_sn=gateway.gw_sn,
             gw_ip=gateway.gw_ip,
             port=gateway.port,
@@ -85,7 +123,7 @@ class DaliGatewayTester:
         """Create gateway configuration directly without discovery (testing mode)."""
         _LOGGER.info("=== Testing Mode: Creating Gateway Configuration Directly ===")
 
-        gateway = DaliGateway(
+        gateway = TestDaliGateway(
             gw_sn=gw_sn,
             gw_ip=gw_ip,
             port=port,
@@ -1157,25 +1195,32 @@ class DaliGatewayTester:
         try:
             gateway = self._assert_gateway()
 
+            # Ensure we have a TestDaliGateway instance
+            if not isinstance(gateway, TestDaliGateway):
+                _LOGGER.error("Gateway is not a TestDaliGateway instance, cannot verify response")
+                return False
+
             _LOGGER.info("Sending identify command to gateway...")
             gateway.identify_gateway()
 
-            # Wait a moment to allow the LED to blink
-            _LOGGER.info(
-                "Waiting for gateway LED to blink (observe the physical device)..."
-            )
-            await asyncio.sleep(5)
+            # Wait for response from gateway
+            _LOGGER.info("Waiting for identify response from gateway...")
+            ack_received = await gateway.wait_for_identify_response(timeout=5.0)
 
-            _LOGGER.info("✓ Identify command sent successfully")
-            _LOGGER.info(
-                "Check if the gateway's LED blinked to confirm identification."
-            )
+            if ack_received:
+                _LOGGER.info("✓ Identify response received with ack=True")
+                _LOGGER.info(
+                    "Check if the gateway's LED blinked to confirm identification."
+                )
+            else:
+                _LOGGER.warning("⚠️  Identify response not received or ack=False")
+                return False
 
         except (DaliGatewayError, RuntimeError) as e:
             _LOGGER.error("Gateway identify test failed: %s", e)
             return False
         else:
-            _LOGGER.info("✓ Gateway identify test completed")
+            _LOGGER.info("✓ Gateway identify test completed successfully")
             return True
 
     async def test_identify_device(self, device_limit: int | None = None) -> bool:
@@ -1191,6 +1236,13 @@ class DaliGatewayTester:
         _LOGGER.info("Each device's indicator LED should blink to identify itself.")
 
         try:
+            gateway = self._assert_gateway()
+
+            # Ensure we have a TestDaliGateway instance
+            if not isinstance(gateway, TestDaliGateway):
+                _LOGGER.error("Gateway is not a TestDaliGateway instance, cannot verify responses")
+                return False
+
             devices_to_test = self.devices
             if device_limit:
                 devices_to_test = self.devices[:device_limit]
@@ -1198,6 +1250,7 @@ class DaliGatewayTester:
                 # Default to testing first 3 devices if no limit specified
                 devices_to_test = self.devices[:3]
 
+            success_count = 0
             for i, device in enumerate(devices_to_test, 1):
                 model_info = device.model or "N/A"
                 _LOGGER.info(
@@ -1213,23 +1266,29 @@ class DaliGatewayTester:
                 # Send identify command
                 device.identify()
 
-                # Wait to allow LED to blink
-                _LOGGER.info(
-                    "  Waiting for device LED to blink (observe the physical device)..."
-                )
-                await asyncio.sleep(3)
+                # Wait for response
+                _LOGGER.info("  Waiting for identify response...")
+                ack_received = await gateway.wait_for_identify_response(timeout=5.0)
+
+                if ack_received:
+                    _LOGGER.info("  ✓ Identify response received with ack=True")
+                    success_count += 1
+                else:
+                    _LOGGER.warning("  ⚠️  Identify response not received or ack=False")
 
         except (DaliGatewayError, RuntimeError) as e:
             _LOGGER.error("Device identify test failed: %s", e)
             return False
         else:
             _LOGGER.info(
-                "✓ Identify commands sent for %d device(s)", len(devices_to_test)
+                "✓ Identify test completed: %d/%d devices responded successfully",
+                success_count,
+                len(devices_to_test)
             )
             _LOGGER.info(
                 "Check if each device's LED blinked to confirm identification."
             )
-            return True
+            return success_count > 0
 
     def _check_connection(self) -> bool:
         """Check if gateway is connected."""

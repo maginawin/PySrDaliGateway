@@ -403,6 +403,7 @@ class DaliGateway:
                 "getSensorArgvRes": self._process_get_sensor_argv_response,
                 "setDevParamRes": self._process_set_dev_param_response,
                 "getDevParamRes": self._process_get_dev_param_response,
+                "identifyDevRes": self._process_identify_dev_response,
             }
 
             handler = command_handlers.get(cmd)
@@ -919,6 +920,18 @@ class DaliGateway:
         _LOGGER.info(
             "Gateway %s: Received restart confirmation, ack: %s. Gateway will restart shortly.",
             self._gw_sn,
+            ack,
+        )
+
+    def _process_identify_dev_response(self, payload: Dict[str, Any]) -> None:
+        """Process identifyDev response."""
+        msg_id = payload.get("msgId")
+        ack = payload.get("ack", False)
+
+        _LOGGER.debug(
+            "Gateway %s: Received identify device response, msgId: %s, ack: %s",
+            self._gw_sn,
+            msg_id,
             ack,
         )
 
