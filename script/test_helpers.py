@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 import psutil
 
 from PySrDaliGateway.gateway import DaliGateway
+from PySrDaliGateway.udp_client import MessageCryptor, MulticastSender
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,8 +33,6 @@ class IdentifyResponseListener:
         Returns:
             True if ack was received, False otherwise
         """
-        from PySrDaliGateway.udp_client import MessageCryptor, MulticastSender
-
         cryptor = MessageCryptor()
         sender = MulticastSender()
 
@@ -62,10 +61,11 @@ class IdentifyResponseListener:
         try:
             # Wait for response with timeout
             await asyncio.wait_for(self._listen_for_response(cryptor), timeout=timeout)
-            return self._ack
         except asyncio.TimeoutError:
             _LOGGER.warning("Timeout waiting for UDP identify response")
             return False
+        else:
+            return self._ack
         finally:
             if self._listen_sock:
                 sender.cleanup_socket(self._listen_sock, interfaces)
@@ -86,7 +86,8 @@ class IdentifyResponseListener:
                 encrypted_cmd = response_json.get("cmd", "")
                 try:
                     decrypted_cmd = cryptor.decrypt_data(encrypted_cmd, cryptor.SR_KEY)
-                except Exception:
+                except (ValueError, KeyError, TypeError):
+                    # Decryption failed - skip this packet
                     continue
 
                 # Check if this is identifyDevRes for our gateway
@@ -101,7 +102,7 @@ class IdentifyResponseListener:
                             self._ack,
                         )
                         break
-            except Exception as e:
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError) as e:
                 _LOGGER.debug("Error reading UDP response: %s", e)
                 continue
 
@@ -138,7 +139,8 @@ class TestDaliGateway(DaliGateway):
 
         try:
             await asyncio.wait_for(self._identify_received.wait(), timeout=timeout)
-            return self._identify_ack
         except asyncio.TimeoutError:
             _LOGGER.warning("Timeout waiting for identify response")
             return False
+        else:
+            return self._identify_ack

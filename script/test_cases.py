@@ -23,6 +23,7 @@ from PySrDaliGateway.types import (
     PanelStatus,
     SensorParamType,
 )
+from PySrDaliGateway.udp_client import send_identify_gateway
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1173,8 +1174,6 @@ class DaliGatewayTester:
             return False
 
         try:
-            from PySrDaliGateway.udp_client import send_identify_gateway
-
             # Test identify for each discovered gateway
             for gateway in self.gateways:
                 _LOGGER.info(
@@ -1220,12 +1219,12 @@ class DaliGatewayTester:
                     )
                     return False
 
-            _LOGGER.info("✓ Gateway identify test completed for all gateways")
-            return True
-
         except (DaliGatewayError, RuntimeError) as e:
             _LOGGER.error("Gateway identify test failed: %s", e)
             return False
+        else:
+            _LOGGER.info("✓ Gateway identify test completed for all gateways")
+            return True
 
     async def test_identify_device(self, device_limit: int | None = None) -> bool:
         """Test device identify command (makes device LED blink)."""
