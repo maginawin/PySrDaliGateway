@@ -62,3 +62,6 @@ AGENTS.md
 
 .kilocode
 doc/
+
+# Test logs
+script/logs/*.log

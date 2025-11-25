@@ -49,6 +49,7 @@ from .types import (
     SensorParamType,
     VersionType,
 )
+from .udp_client import send_identify_gateway
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1070,16 +1071,13 @@ class DaliGateway:
         )
         return self._version_result
 
-    def identify_gateway(self) -> None:
-        """Make the gateway's indicator light blink to identify it physically."""
-        command: Dict[str, Any] = {
-            "cmd": "identifyDev",
-            "msgId": str(int(time.time())),
-            "gwSn": self._gw_sn,
-        }
-        command_json = json.dumps(command)
-        self._mqtt_client.publish(self._pub_topic, command_json)
-        _LOGGER.debug("Identifying gateway %s", self._gw_sn)
+    async def identify_gateway(self) -> None:
+        """Make the gateway's indicator light blink to identify it physically.
+
+        This command is sent via UDP multicast (not MQTT) according to the protocol specification.
+        """
+        _LOGGER.debug("Sending identify command to gateway %s via UDP", self._gw_sn)
+        await send_identify_gateway(self._gw_sn)
 
     async def read_group(self, group_id: int, channel: int = 0) -> Dict[str, Any]:
         self._read_group_received = asyncio.Event()
