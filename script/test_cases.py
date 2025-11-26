@@ -5,6 +5,7 @@ import asyncio
 import logging
 from typing import Dict, List, Tuple
 
+from test_cache import GatewayCredentialCache
 from test_helpers import IdentifyResponseListener, TestDaliGateway
 
 from PySrDaliGateway.device import Device
@@ -33,12 +34,14 @@ class DaliGatewayTester:
 
     def __init__(self):
         self.discovery: DaliGatewayDiscovery | None = None
-        self.gateways: List[DaliGateway] = []
-        self.gateway: DaliGateway | None = None
+        self.gateways: List[TestDaliGateway] = []
+        self.gateway: TestDaliGateway | None = None
         self.devices: List[Device] = []
         self.groups: List[Group] = []
         self.scenes: List[Scene] = []
         self.is_connected = False
+        # Credential cache for automatic discovery bypass
+        self.credential_cache = GatewayCredentialCache()
         # Track online status events
         self.online_status_events: List[Tuple[str, bool]] = []
         # Track callback events
@@ -55,7 +58,7 @@ class DaliGatewayTester:
         *,
         username: str | None = None,
         passwd: str | None = None,
-    ) -> DaliGateway:
+    ) -> TestDaliGateway:
         """Create a detached copy of a gateway with optional credential overrides."""
         return TestDaliGateway(
             gw_sn=gateway.gw_sn,
@@ -112,6 +115,39 @@ class DaliGatewayTester:
         """Step 1: Discover DALI gateways."""
         _LOGGER.info("=== Testing Gateway Discovery ===")
 
+        # Try cache first - use most recently connected gateway
+        if self.credential_cache.has_cache():
+            cached = self.credential_cache.get_last_gateway()
+            if cached:
+                _LOGGER.info(
+                    "✓ Found cached credentials for gateway %s", cached["gw_sn"]
+                )
+                _LOGGER.info("  Using cached connection info (skipping UDP discovery)")
+                _LOGGER.info(
+                    "  (Delete script/.gateway_cache.json to force rediscovery)"
+                )
+
+                # Create gateway directly from cache
+                gateway = TestDaliGateway(
+                    gw_sn=cached["gw_sn"],
+                    gw_ip=cached["gw_ip"],
+                    port=cached["port"],
+                    username=cached["username"],
+                    passwd=cached["passwd"],
+                    name=cached.get("name"),
+                    channel_total=cached.get("channel_total"),
+                    is_tls=cached.get("is_tls", False),
+                )
+                self.gateways = [gateway]
+                _LOGGER.info(
+                    "  Gateway: %s (%s) at %s:%s",
+                    gateway.name,
+                    gateway.gw_sn,
+                    gateway.gw_ip,
+                    gateway.port,
+                )
+                return True
+
         # Preserve existing credentials if we have a specific gateway_sn
         existing_credentials: Dict[str, str] = {}
         if gateway_sn and self.gateway and self.gateway.gw_sn == gateway_sn:
@@ -125,8 +161,10 @@ class DaliGatewayTester:
             self.discovery = DaliGatewayDiscovery()
 
         try:
-            self.gateways = await self.discovery.discover_gateways(gateway_sn)
-            _LOGGER.debug("Discovered gateways: %s", self.gateways)
+            discovered = await self.discovery.discover_gateways(gateway_sn)
+            _LOGGER.debug("Discovered gateways: %s", discovered)
+            # Convert to TestDaliGateway instances
+            self.gateways = [self._clone_gateway(gw) for gw in discovered]
 
             if not self.gateways:
                 _LOGGER.error(
@@ -140,7 +178,7 @@ class DaliGatewayTester:
 
         # Apply preserved credentials if we have them and found the matching gateway
         if existing_credentials and gateway_sn:
-            updated_gateways: List[DaliGateway] = []
+            updated_gateways: List[TestDaliGateway] = []
             for gateway in self.gateways:
                 if (
                     gateway.gw_sn == gateway_sn
@@ -216,6 +254,12 @@ class DaliGatewayTester:
             return False
         else:
             _LOGGER.info("✓ Successfully connected to gateway!")
+
+            # Save credentials to cache after successful connection
+            if self.gateway.username and self.gateway.passwd:
+                self.credential_cache.save_gateway(self.gateway)
+                _LOGGER.debug("Saved gateway credentials to cache")
+
             return True
 
     async def test_disconnect(self) -> bool:
@@ -405,9 +449,12 @@ class DaliGatewayTester:
             _LOGGER.info("\n--- Test 1: Get current device parameters ---")
             light_device.get_device_parameters()
 
-            await asyncio.sleep(interval)
+            baseline_events = len(self.dev_param_events)
+            got_initial_params = await self._await_dev_param(
+                baseline_events, timeout=12.0
+            )
 
-            if self.dev_param_events:
+            if got_initial_params:
                 _LOGGER.info("✓ Received parameters: %s", self.dev_param_events[-1][1])
             else:
                 _LOGGER.warning("✗ No parameters received")
@@ -447,9 +494,12 @@ class DaliGatewayTester:
             self.dev_param_events.clear()
             light_device.get_device_parameters()
 
-            await asyncio.sleep(interval)
+            baseline_events = len(self.dev_param_events)
+            got_verified_params = await self._await_dev_param(
+                baseline_events, timeout=15.0
+            )
 
-            if self.dev_param_events:
+            if got_verified_params:
                 latest_params = self.dev_param_events[-1][1]
                 _LOGGER.info("✓ Retrieved updated parameters: %s", latest_params)
 
@@ -848,6 +898,16 @@ class DaliGatewayTester:
             _LOGGER.info("⚙️ Device parameters: %s -> %s", device_id, params)
 
         return on_dev_param
+
+    async def _await_dev_param(self, baseline_count: int, timeout: float) -> bool:
+        """Wait for a new device parameter event up to timeout seconds."""
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        while loop.time() - start < timeout:
+            if len(self.dev_param_events) > baseline_count:
+                return True
+            await asyncio.sleep(0.5)
+        return False
 
     def _make_sensor_param_callback(self, device_id: str):
         """Create a sensor parameter callback with device_id captured in closure."""

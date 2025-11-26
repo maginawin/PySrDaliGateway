@@ -138,6 +138,8 @@ class DaliGateway:
             CallbackEventType.ENERGY_REPORT: {},
             CallbackEventType.ENERGY_DATA: {},
             CallbackEventType.SENSOR_ON_OFF: {},
+            CallbackEventType.DEV_PARAM: {},
+            CallbackEventType.SENSOR_PARAM: {},
         }
 
         self._window_ms = 100
@@ -368,12 +370,12 @@ class DaliGateway:
     ) -> None:
         try:
             payload_json = json.loads(msg.payload.decode("utf-8", errors="replace"))
-            _LOGGER.debug(
-                "Gateway %s: Received MQTT message on topic %s: %s",
-                self._gw_sn,
-                msg.topic,
-                payload_json,
-            )
+            # _LOGGER.debug(
+            #     "Gateway %s: Received MQTT message on topic %s: %s",
+            #     self._gw_sn,
+            #     msg.topic,
+            #     payload_json,
+            # )
 
             cmd = payload_json.get("cmd")
             if not cmd:

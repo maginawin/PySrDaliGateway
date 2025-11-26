@@ -65,3 +65,7 @@ doc/
 
 # Test logs
 script/logs/*.log
+
+# Test cache (contains credentials)
+script/.gateway_cache.json
+script/.gateway_cache.json.tmp
