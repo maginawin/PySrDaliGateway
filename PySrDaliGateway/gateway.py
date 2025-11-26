@@ -370,12 +370,12 @@ class DaliGateway:
     ) -> None:
         try:
             payload_json = json.loads(msg.payload.decode("utf-8", errors="replace"))
-            # _LOGGER.debug(
-            #     "Gateway %s: Received MQTT message on topic %s: %s",
-            #     self._gw_sn,
-            #     msg.topic,
-            #     payload_json,
-            # )
+            _LOGGER.debug(
+                "Gateway %s: Received MQTT message on topic %s: %s",
+                self._gw_sn,
+                msg.topic,
+                payload_json,
+            )
 
             cmd = payload_json.get("cmd")
             if not cmd:
@@ -1449,7 +1449,7 @@ class DaliGateway:
             "devType": dev_type,
             "channel": channel,
             "address": address,
-            "fromBus": True,
+            "fromBus": False,
         }
         command_json = json.dumps(command)
         self._mqtt_client.publish(self._pub_topic, command_json)
