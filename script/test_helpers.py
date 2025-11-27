@@ -5,7 +5,7 @@ import asyncio
 import json
 import logging
 import socket
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
 
 import psutil
 
@@ -110,8 +110,28 @@ class IdentifyResponseListener:
 class TestDaliGateway(DaliGateway):
     """Extended DaliGateway with response tracking for testing."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        gw_sn: str,
+        gw_ip: str,
+        port: int,
+        username: str,
+        passwd: str,
+        *,
+        name: str | None = None,
+        channel_total: Sequence[int] | None = None,
+        is_tls: bool = False,
+    ) -> None:
+        super().__init__(
+            gw_sn,
+            gw_ip,
+            port,
+            username,
+            passwd,
+            name=name,
+            channel_total=channel_total,
+            is_tls=is_tls,
+        )
         # Track identify responses
         self._identify_received = asyncio.Event()
         self._identify_ack: bool = False

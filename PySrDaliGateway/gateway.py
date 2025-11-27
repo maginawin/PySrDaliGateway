@@ -39,6 +39,7 @@ from .helper import (
 from .scene import Scene
 from .types import (
     CallbackEventType,
+    DeviceParamCommand,
     DeviceParamType,
     EnergyData,
     IlluminanceStatus,
@@ -138,6 +139,8 @@ class DaliGateway:
             CallbackEventType.ENERGY_REPORT: {},
             CallbackEventType.ENERGY_DATA: {},
             CallbackEventType.SENSOR_ON_OFF: {},
+            CallbackEventType.DEV_PARAM: {},
+            CallbackEventType.SENSOR_PARAM: {},
         }
 
         self._window_ms = 100
@@ -146,6 +149,35 @@ class DaliGateway:
 
     def _get_device_key(self, dev_type: str, channel: int, address: int) -> str:
         return f"{dev_type}_{channel}_{address}"
+
+    def _build_paramer(self, param: DeviceParamType) -> Dict[str, Any]:
+        param_mapping = {
+            "address": "address",
+            "fade_time": "fadeTime",
+            "fade_rate": "fadeRate",
+            "power_status": "powerStatus",
+            "system_failure_status": "systemFailureStatus",
+            "max_brightness": "maxBrightness",
+            "min_brightness": "minBrightness",
+            "standby_power": "standbyPower",
+            "max_power": "maxPower",
+            "cct_cool": "cctCool",
+            "cct_warm": "cctWarm",
+            "phy_cct_cool": "phyCctCool",
+            "phy_cct_warm": "phyCctWarm",
+            "step_cct": "stepCCT",
+            "temp_thresholds": "tempThresholds",
+            "runtime_thresholds": "runtimeThresholds",
+            "waring_runtime_max": "waringRuntimeMax",
+            "waring_temperature_max": "waringTemperatureMax",
+        }
+
+        param_dict = dict(param)
+        paramer: Dict[str, Any] = {}
+        for python_key, protocol_key in param_mapping.items():
+            if python_key in param_dict:
+                paramer[protocol_key] = param_dict[python_key]
+        return paramer
 
     def add_request(
         self, cmd: str, dev_type: str, channel: int, address: int, data: Dict[str, Any]
@@ -1447,7 +1479,7 @@ class DaliGateway:
             "devType": dev_type,
             "channel": channel,
             "address": address,
-            "fromBus": True,
+            "fromBus": False,
         }
         command_json = json.dumps(command)
         self._mqtt_client.publish(self._pub_topic, command_json)
@@ -1463,36 +1495,7 @@ class DaliGateway:
             address: Device address
             param: Dictionary of device parameters to set (only provided fields will be set)
         """
-        # Build paramer dict dynamically from provided fields
-        # Convert snake_case Python keys to camelCase protocol keys
-        param_mapping = {
-            "address": "address",
-            "fade_time": "fadeTime",
-            "fade_rate": "fadeRate",
-            "power_status": "powerStatus",
-            "system_failure_status": "systemFailureStatus",
-            "max_brightness": "maxBrightness",
-            "min_brightness": "minBrightness",
-            "standby_power": "standbyPower",
-            "max_power": "maxPower",
-            "cct_cool": "cctCool",
-            "cct_warm": "cctWarm",
-            "phy_cct_cool": "phyCctCool",
-            "phy_cct_warm": "phyCctWarm",
-            "step_cct": "stepCCT",
-            "temp_thresholds": "tempThresholds",
-            "runtime_thresholds": "runtimeThresholds",
-            "waring_runtime_max": "waringRuntimeMax",
-            "waring_temperature_max": "waringTemperatureMax",
-        }
-
-        # Convert TypedDict to regular dict for iteration
-        param_dict = dict(param)
-        paramer: Dict[str, Any] = {}
-        for python_key, protocol_key in param_mapping.items():
-            if python_key in param_dict:
-                paramer[protocol_key] = param_dict[python_key]
-
+        paramer = self._build_paramer(param)
         if not paramer:
             _LOGGER.warning(
                 "Gateway %s: No valid parameters provided for setDevParam", self._gw_sn
@@ -1515,6 +1518,50 @@ class DaliGateway:
         command_json = json.dumps(command)
         _LOGGER.debug(
             "Gateway %s: Sending setDevParam command: %s", self._gw_sn, command
+        )
+        self._mqtt_client.publish(self._pub_topic, command_json)
+
+    def command_set_dev_params(self, items: Sequence[DeviceParamCommand]) -> None:
+        """Set parameters for multiple targets in one MQTT message."""
+        data: List[Dict[str, Any]] = []
+
+        for item in items:
+            paramer = self._build_paramer(item["param"])
+            if not paramer:
+                _LOGGER.warning(
+                    "Gateway %s: No valid parameters provided for %s",
+                    self._gw_sn,
+                    item,
+                )
+                continue
+
+            data.append(
+                {
+                    "devType": item["dev_type"],
+                    "channel": item["channel"],
+                    "address": item["address"],
+                    "paramer": paramer,
+                }
+            )
+
+        if not data:
+            _LOGGER.warning(
+                "Gateway %s: No valid setDevParam payloads provided for batch send",
+                self._gw_sn,
+            )
+            return
+
+        command: Dict[str, Any] = {
+            "cmd": "setDevParam",
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+            "data": data,
+        }
+        command_json = json.dumps(command)
+        _LOGGER.debug(
+            "Gateway %s: Sending batch setDevParam command: %s",
+            self._gw_sn,
+            command,
         )
         self._mqtt_client.publish(self._pub_topic, command_json)
 

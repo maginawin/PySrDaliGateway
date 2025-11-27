@@ -100,6 +100,15 @@ class DeviceParamType(TypedDict, total=False):
     waring_temperature_max: int  # Temperature warning maximum (Celsius)
 
 
+class DeviceParamCommand(TypedDict):
+    """Single item for a setDevParam command."""
+
+    dev_type: str
+    channel: int
+    address: int
+    param: DeviceParamType
+
+
 class SensorParamType(TypedDict, total=False):
     """Sensor parameter configuration type.
 

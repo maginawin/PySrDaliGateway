@@ -69,7 +69,7 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
         ),
         "setdevparam": (
             tester.test_set_dev_param,
-            ["connection"],
+            ["devices"],
             "SetDevParam Commands",
         ),
         "setsensorparam": (
