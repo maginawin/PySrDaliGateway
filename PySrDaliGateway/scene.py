@@ -1,10 +1,10 @@
 """Dali Gateway Scene"""
 
-from typing import Any, Callable, Dict, Protocol
+from typing import Callable, List, Protocol
 
 from .base import DaliObjectBase
 from .helper import gen_scene_unique_id
-from .types import CallbackEventType, ListenerCallback
+from .types import CallbackEventType, ListenerCallback, SceneDeviceType
 
 
 class SupportsSceneCommands(Protocol):
@@ -26,10 +26,6 @@ class SupportsSceneCommands(Protocol):
         """Register a listener for a specific event type."""
         raise NotImplementedError
 
-    async def read_scene(self, scene_id: int, channel: int) -> Dict[str, Any]:
-        """Read scene information from gateway."""
-        raise NotImplementedError
-
 
 class Scene(DaliObjectBase):
     """Dali Gateway Scene"""
@@ -41,12 +37,14 @@ class Scene(DaliObjectBase):
         name: str,
         channel: int,
         area_id: str,
+        devices: List[SceneDeviceType],
     ) -> None:
         self._client = command_client
         self.scene_id = scene_id
         self.name = name
         self.channel = channel
         self.area_id = area_id
+        self.devices = devices
         self.unique_id = gen_scene_unique_id(scene_id, channel, command_client.gw_sn)
         self.gw_sn = command_client.gw_sn
 
@@ -66,7 +64,3 @@ class Scene(DaliObjectBase):
     ) -> Callable[[], None]:
         """Register a listener for this scene's events."""
         return self._client.register_listener(event_type, listener, dev_id=self.gw_sn)
-
-    async def read_scene(self) -> Dict[str, Any]:
-        """Read this scene's information from the gateway."""
-        return await self._client.read_scene(self.scene_id, self.channel)

@@ -5,7 +5,7 @@ import json
 import logging
 import ssl
 import time
-from typing import Any, Callable, Dict, List, Sequence, Union, cast
+from typing import Any, Callable, Dict, List, Sequence, Tuple, Union, cast
 
 import paho.mqtt.client as paho_mqtt
 
@@ -124,8 +124,8 @@ class DaliGateway:
         self._version_result: VersionType | None = None
         self._read_group_received = asyncio.Event()
         self._read_group_result: Dict[str, Any] | None = None
-        self._read_scene_received = asyncio.Event()
-        self._read_scene_result: Dict[str, Any] | None = None
+        self._read_scene_events: Dict[Tuple[int, int], asyncio.Event] = {}
+        self._read_scene_results: Dict[Tuple[int, int], Dict[str, Any]] = {}
 
         # Device-specific listeners: {event_type: {dev_id: [listeners]}}
         self._device_listeners: Dict[
@@ -677,6 +677,7 @@ class DaliGateway:
                         name=name,
                         channel=channel,
                         area_id=area_id,
+                        devices=[],
                     )
                 )
 
@@ -756,15 +757,19 @@ class DaliGateway:
         scene_id = payload.get("sceneId", 0)
         scene_name = payload.get("name", "")
         channel = payload.get("channel", 0)
+        scene_key = (scene_id, channel)
         data: Dict[str, Any] | None = payload.get("data")
 
         if data is None:
             _LOGGER.error(
-                "Gateway %s: Received readSceneRes with no data: %s",
+                "Gateway %s: Received readSceneRes with no data for scene %s channel %s",
                 self._gw_sn,
-                payload,
+                scene_id,
+                channel,
             )
-            self._read_scene_received.set()
+            # Mark as received even with error to unblock waiting coroutine
+            if scene_key in self._read_scene_events:
+                self._read_scene_events[scene_key].set()
             return
 
         raw_devices: List[Dict[str, Any]] = data.get("device", [])
@@ -785,7 +790,7 @@ class DaliGateway:
             }
             devices.append(device)
 
-        self._read_scene_result = {
+        self._read_scene_results[scene_key] = {
             "unique_id": gen_scene_unique_id(scene_id, channel, self._gw_sn),
             "id": scene_id,
             "name": scene_name,
@@ -793,7 +798,10 @@ class DaliGateway:
             "area_id": "",
             "devices": devices,
         }
-        self._read_scene_received.set()
+
+        # Signal completion for this specific scene
+        if scene_key in self._read_scene_events:
+            self._read_scene_events[scene_key].set()
 
     def _process_set_sensor_on_off_response(self, payload: Dict[str, Any]) -> None:
         _LOGGER.debug(
@@ -1158,7 +1166,12 @@ class DaliGateway:
         return self._read_group_result
 
     async def read_scene(self, scene_id: int, channel: int = 0) -> Dict[str, Any]:
-        self._read_scene_received = asyncio.Event()
+        scene_key = (scene_id, channel)
+
+        # Create event for this specific scene read
+        self._read_scene_events[scene_key] = asyncio.Event()
+        self._read_scene_results.pop(scene_key, None)  # Clear any previous result
+
         payload: Dict[str, Any] = {
             "cmd": "readScene",
             "msgId": str(int(time.time())),
@@ -1167,40 +1180,61 @@ class DaliGateway:
             "sceneId": scene_id,
         }
 
-        _LOGGER.debug("Gateway %s: Sending read scene command", self._gw_sn)
+        _LOGGER.debug(
+            "Gateway %s: Sending read scene command for scene %s channel %s",
+            self._gw_sn,
+            scene_id,
+            channel,
+        )
         self._mqtt_client.publish(self._pub_topic, json.dumps(payload))
 
         try:
-            await asyncio.wait_for(self._read_scene_received.wait(), timeout=30.0)
+            await asyncio.wait_for(
+                self._read_scene_events[scene_key].wait(), timeout=30.0
+            )
         except asyncio.TimeoutError as err:
             _LOGGER.error(
-                "Gateway %s: Timeout waiting for read scene response for scene %s",
+                "Gateway %s: Timeout waiting for read scene response for scene %s channel %s",
                 self._gw_sn,
                 scene_id,
+                channel,
             )
+            # Cleanup
+            self._read_scene_events.pop(scene_key, None)
+            self._read_scene_results.pop(scene_key, None)
             raise DaliGatewayError(
-                f"Timeout reading scene {scene_id} from gateway {self._gw_sn}",
+                f"Timeout reading scene {scene_id} channel {channel} from gateway {self._gw_sn}",
                 self._gw_sn,
             ) from err
 
-        if not self._read_scene_result:
+        # Get result
+        result = self._read_scene_results.get(scene_key)
+
+        # Cleanup
+        self._read_scene_events.pop(scene_key, None)
+        self._read_scene_results.pop(scene_key, None)
+
+        if not result:
             _LOGGER.error(
-                "Gateway %s: Failed to read scene %s - scene may not exist",
+                "Gateway %s: Failed to read scene %s channel %s - scene may not exist",
                 self._gw_sn,
                 scene_id,
+                channel,
             )
             raise DaliGatewayError(
-                f"Scene {scene_id} not found on gateway {self._gw_sn}", self._gw_sn
+                f"Scene {scene_id} channel {channel} not found on gateway {self._gw_sn}",
+                self._gw_sn,
             )
 
         _LOGGER.info(
-            "Gateway %s: Scene read completed - ID: %s, Name: %s, Devices: %d",
+            "Gateway %s: Scene read completed - ID: %s, Channel: %s, Name: %s, Devices: %d",
             self._gw_sn,
-            self._read_scene_result["id"],
-            self._read_scene_result["name"],
-            len(self._read_scene_result["devices"]),
+            result["id"],
+            result["channel"],
+            result["name"],
+            len(result["devices"]),
         )
-        return self._read_scene_result
+        return result
 
     async def discover_devices(self) -> list[Device]:
         self._devices_received = asyncio.Event()
@@ -1257,6 +1291,12 @@ class DaliGateway:
         return self._groups_result
 
     async def discover_scenes(self) -> list[Scene]:
+        """Discover all scenes and read their detailed configuration in parallel.
+
+        Returns only scenes that were successfully read. Scenes that fail to read
+        (timeout, errors, etc.) are logged but not included in the result.
+        """
+        # Phase 1: Discover basic scene list
         self._scenes_received = asyncio.Event()
         self._scenes_result.clear()
         search_payload = {
@@ -1275,13 +1315,74 @@ class DaliGateway:
             _LOGGER.warning(
                 "Gateway %s: Timeout waiting for scene discovery response", self._gw_sn
             )
+            return []
+
+        if not self._scenes_result:
+            _LOGGER.info("Gateway %s: No scenes found", self._gw_sn)
+            return []
 
         _LOGGER.info(
-            "Gateway %s: Scene discovery completed, found %d scene(s)",
+            "Gateway %s: Found %d scene(s), reading details in parallel...",
             self._gw_sn,
             len(self._scenes_result),
         )
-        return self._scenes_result
+
+        # Phase 2: Read detailed scene data in parallel
+        # Store basic scene info for reconstruction
+        basic_scenes: List[Tuple[int, str, int, str]] = [
+            (scene.scene_id, scene.name, scene.channel, scene.area_id)
+            for scene in self._scenes_result
+        ]
+
+        # Create parallel read tasks
+        read_tasks = [
+            self.read_scene(scene_id, channel)
+            for scene_id, _, channel, _ in basic_scenes
+        ]
+
+        # Execute all reads in parallel with exception handling
+        results = await asyncio.gather(*read_tasks, return_exceptions=True)
+
+        # Phase 3: Construct Scene objects with device data
+        scenes_with_devices: list[Scene] = []
+        for (scene_id, name, channel, area_id), result in zip(basic_scenes, results):
+            if isinstance(result, Exception):
+                _LOGGER.error(
+                    "Gateway %s: Failed to read scene %s (channel %s): %s",
+                    self._gw_sn,
+                    scene_id,
+                    channel,
+                    result,
+                )
+                continue
+
+            # Successfully read scene data - result is Dict[str, Any]
+            result_dict = cast("Dict[str, Any]", result)
+            try:
+                scene = Scene(
+                    command_client=self,
+                    scene_id=scene_id,
+                    name=result_dict.get("name", name),
+                    channel=channel,
+                    area_id=result_dict.get("area_id", area_id),
+                    devices=result_dict.get("devices", []),
+                )
+                scenes_with_devices.append(scene)
+            except (KeyError, TypeError, ValueError) as e:
+                _LOGGER.error(
+                    "Gateway %s: Failed to create Scene object for scene %s: %s",
+                    self._gw_sn,
+                    scene_id,
+                    e,
+                )
+
+        _LOGGER.info(
+            "Gateway %s: Scene discovery completed, %d/%d scene(s) successfully read",
+            self._gw_sn,
+            len(scenes_with_devices),
+            len(basic_scenes),
+        )
+        return scenes_with_devices
 
     def command_write_dev(
         self,

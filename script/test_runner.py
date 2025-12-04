@@ -84,10 +84,10 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             "Read Group Details",
         ),
         "scenes": (tester.test_scene_discovery, ["connection"], "Scene Discovery"),
-        "readscene": (
-            tester.test_read_scene,
+        "scenedevices": (
+            tester.test_scene_devices,
             ["connection", "scenes"],
-            "Read Scene Details",
+            "Scene Device Access",
         ),
         "callbacks": (
             tester.test_callback_setup,
