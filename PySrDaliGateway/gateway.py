@@ -781,11 +781,20 @@ class DaliGateway:
             raw_properties = device_data.get("property", [])
             light_status = parse_light_status(raw_properties)
 
+            dev_type = str(device_data.get("devType", ""))
+            channel_id = int(device_data.get("channel", 0))
+            address = int(device_data.get("address", 0))
+            gw_sn_obj = str(device_data.get("gwSnObj", ""))
+            unique_id = gen_device_unique_id(
+                dev_type, channel_id, address, gw_sn_obj or self._gw_sn
+            )
+
             device: SceneDeviceType = {
-                "dev_type": device_data.get("devType", ""),
-                "channel": device_data.get("channel", 0),
-                "address": device_data.get("address", 0),
-                "gw_sn_obj": device_data.get("gwSnObj", ""),
+                "unique_id": unique_id,
+                "dev_type": dev_type,
+                "channel": channel_id,
+                "address": address,
+                "gw_sn_obj": gw_sn_obj,
                 "property": light_status,
             }
             devices.append(device)

@@ -62,6 +62,7 @@ class LightStatus(TypedDict):
 
 
 class SceneDeviceType(TypedDict):
+    unique_id: str
     dev_type: str
     channel: int
     address: int
