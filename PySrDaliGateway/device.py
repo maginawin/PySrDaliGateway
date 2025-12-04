@@ -4,6 +4,7 @@ import colorsys
 import logging
 from typing import Any, Callable, Dict, Iterable, List, Protocol, Tuple
 
+from .base import DaliObjectBase
 from .const import COLOR_MODE_MAP
 from .types import (
     CallbackEventType,
@@ -81,7 +82,7 @@ class SupportsDeviceCommands(Protocol):
         raise NotImplementedError
 
 
-class Device:
+class Device(DaliObjectBase):
     """Dali Gateway Device"""
 
     def __init__(
@@ -113,6 +114,7 @@ class Device:
         self.area_name = area_name
         self.area_id = area_id
         self.model = model
+        self.gw_sn = command_client.gw_sn
         self.properties: List[DeviceProperty] = list(properties or [])
 
     def __repr__(self) -> str:
@@ -120,11 +122,6 @@ class Device:
 
     def __str__(self) -> str:
         return self.name
-
-    @property
-    def gw_sn(self) -> str:
-        """Gateway serial number (delegated from client)."""
-        return self._client.gw_sn
 
     @property
     def color_mode(self) -> str:

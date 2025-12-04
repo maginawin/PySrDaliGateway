@@ -4,6 +4,7 @@ import colorsys
 import logging
 from typing import Any, Callable, Dict, List, Protocol, Tuple
 
+from .base import DaliObjectBase
 from .helper import gen_group_unique_id
 from .types import CallbackEventType, ListenerCallback
 
@@ -36,7 +37,7 @@ class SupportsGroupCommands(Protocol):
         raise NotImplementedError
 
 
-class Group:
+class Group(DaliObjectBase):
     """Dali Gateway Group"""
 
     def __init__(
@@ -52,22 +53,14 @@ class Group:
         self.name = name
         self.channel = channel
         self.area_id = area_id
+        self.unique_id = gen_group_unique_id(group_id, channel, command_client.gw_sn)
+        self.gw_sn = command_client.gw_sn
 
     def __str__(self) -> str:
         return f"{self.name} (Channel {self.channel}, Group {self.group_id})"
 
     def __repr__(self) -> str:
         return f"Group(name={self.name}, unique_id={self.unique_id})"
-
-    @property
-    def unique_id(self) -> str:
-        """Computed unique identifier for this group."""
-        return gen_group_unique_id(self.group_id, self.channel, self._client.gw_sn)
-
-    @property
-    def gw_sn(self) -> str:
-        """Gateway serial number (delegated from client)."""
-        return self._client.gw_sn
 
     def _create_property(self, dpid: int, data_type: str, value: Any) -> Dict[str, Any]:
         return {"dpid": dpid, "dataType": data_type, "value": value}
