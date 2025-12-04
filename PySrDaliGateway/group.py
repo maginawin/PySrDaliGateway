@@ -4,6 +4,7 @@ import colorsys
 import logging
 from typing import Any, Callable, Dict, List, Protocol, Tuple
 
+from .base import DaliObjectBase
 from .helper import gen_group_unique_id
 from .types import CallbackEventType, ListenerCallback
 
@@ -36,7 +37,7 @@ class SupportsGroupCommands(Protocol):
         raise NotImplementedError
 
 
-class Group:
+class Group(DaliObjectBase):
     """Dali Gateway Group"""
 
     def __init__(

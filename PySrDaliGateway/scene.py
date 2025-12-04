@@ -2,6 +2,7 @@
 
 from typing import Any, Callable, Dict, Protocol
 
+from .base import DaliObjectBase
 from .helper import gen_scene_unique_id
 from .types import CallbackEventType, ListenerCallback
 
@@ -30,7 +31,7 @@ class SupportsSceneCommands(Protocol):
         raise NotImplementedError
 
 
-class Scene:
+class Scene(DaliObjectBase):
     """Dali Gateway Scene"""
 
     def __init__(
