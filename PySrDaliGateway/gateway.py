@@ -785,9 +785,12 @@ class DaliGateway:
             channel_id = int(device_data.get("channel", 0))
             address = int(device_data.get("address", 0))
             gw_sn_obj = str(device_data.get("gwSnObj", ""))
-            unique_id = gen_device_unique_id(
-                dev_type, channel_id, address, gw_sn_obj or self._gw_sn
-            )
+            if dev_type == "0401":
+                unique_id = gen_group_unique_id(address, channel_id, self._gw_sn)
+            else:
+                unique_id = gen_device_unique_id(
+                    dev_type, channel_id, address, self._gw_sn
+                )
 
             device: SceneDeviceType = {
                 "unique_id": unique_id,
