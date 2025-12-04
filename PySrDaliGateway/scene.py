@@ -2,6 +2,7 @@
 
 from typing import Callable, List, Protocol
 
+from .base import DaliObjectBase
 from .helper import gen_scene_unique_id
 from .types import CallbackEventType, ListenerCallback, SceneDeviceType
 
@@ -26,7 +27,7 @@ class SupportsSceneCommands(Protocol):
         raise NotImplementedError
 
 
-class Scene:
+class Scene(DaliObjectBase):
     """Dali Gateway Scene"""
 
     def __init__(
@@ -43,28 +44,15 @@ class Scene:
         self.name = name
         self.channel = channel
         self.area_id = area_id
-        self._devices = devices
+        self.devices = devices
+        self.unique_id = gen_scene_unique_id(scene_id, channel, command_client.gw_sn)
+        self.gw_sn = command_client.gw_sn
 
     def __str__(self) -> str:
         return f"{self.name} (Channel {self.channel}, Scene {self.scene_id})"
 
     def __repr__(self) -> str:
         return f"Scene(name={self.name}, unique_id={self.unique_id})"
-
-    @property
-    def unique_id(self) -> str:
-        """Computed unique identifier for this scene."""
-        return gen_scene_unique_id(self.scene_id, self.channel, self._client.gw_sn)
-
-    @property
-    def gw_sn(self) -> str:
-        """Gateway serial number (delegated from client)."""
-        return self._client.gw_sn
-
-    @property
-    def devices(self) -> List[SceneDeviceType]:
-        """List of devices in this scene with their configured states."""
-        return self._devices
 
     def activate(self) -> None:
         self._client.command_write_scene(self.scene_id, self.channel)
