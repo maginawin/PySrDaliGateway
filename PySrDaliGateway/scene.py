@@ -1,9 +1,9 @@
 """Dali Gateway Scene"""
 
-from typing import Any, Callable, Dict, Protocol
+from typing import Callable, List, Protocol
 
 from .helper import gen_scene_unique_id
-from .types import CallbackEventType, ListenerCallback
+from .types import CallbackEventType, ListenerCallback, SceneDeviceType
 
 
 class SupportsSceneCommands(Protocol):
@@ -25,10 +25,6 @@ class SupportsSceneCommands(Protocol):
         """Register a listener for a specific event type."""
         raise NotImplementedError
 
-    async def read_scene(self, scene_id: int, channel: int) -> Dict[str, Any]:
-        """Read scene information from gateway."""
-        raise NotImplementedError
-
 
 class Scene:
     """Dali Gateway Scene"""
@@ -40,12 +36,14 @@ class Scene:
         name: str,
         channel: int,
         area_id: str,
+        devices: List[SceneDeviceType],
     ) -> None:
         self._client = command_client
         self.scene_id = scene_id
         self.name = name
         self.channel = channel
         self.area_id = area_id
+        self._devices = devices
 
     def __str__(self) -> str:
         return f"{self.name} (Channel {self.channel}, Scene {self.scene_id})"
@@ -63,6 +61,11 @@ class Scene:
         """Gateway serial number (delegated from client)."""
         return self._client.gw_sn
 
+    @property
+    def devices(self) -> List[SceneDeviceType]:
+        """List of devices in this scene with their configured states."""
+        return self._devices
+
     def activate(self) -> None:
         self._client.command_write_scene(self.scene_id, self.channel)
 
@@ -73,7 +76,3 @@ class Scene:
     ) -> Callable[[], None]:
         """Register a listener for this scene's events."""
         return self._client.register_listener(event_type, listener, dev_id=self.gw_sn)
-
-    async def read_scene(self) -> Dict[str, Any]:
-        """Read this scene's information from the gateway."""
-        return await self._client.read_scene(self.scene_id, self.channel)

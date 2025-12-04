@@ -691,6 +691,13 @@ class DaliGatewayTester:
             return False
         else:
             _LOGGER.info("✓ Found %d scene(s)", len(self.scenes))
+            # Show device counts for each scene
+            for scene in self.scenes:
+                _LOGGER.info(
+                    "  Scene '%s': %d device(s)",
+                    scene.name,
+                    len(scene.devices),
+                )
             return True
 
     async def test_read_group(self) -> bool:
@@ -751,8 +758,8 @@ class DaliGatewayTester:
             _LOGGER.info("✓ Read group commands completed successfully")
             return True
 
-    async def test_read_scene(self) -> bool:
-        """Test reading scene details with devices."""
+    async def test_scene_devices(self) -> bool:
+        """Test accessing scene device data."""
         if not self._check_connection():
             return False
 
@@ -760,34 +767,21 @@ class DaliGatewayTester:
             _LOGGER.error("No scenes available! Run scene discovery first.")
             return False
 
-        _LOGGER.info("=== Testing Read Scene Commands ===")
+        _LOGGER.info("=== Testing Scene Device Access ===")
         try:
-            gateway = self._assert_gateway()
-
-            # Test reading details for each discovered scene
+            # Test accessing devices for each discovered scene
             for scene in self.scenes[:3]:  # Test up to 3 scenes
-                scene_id = scene.scene_id
-                channel = scene.channel
                 _LOGGER.info(
-                    "Reading scene: %s (ID: %s, Channel: %s)",
+                    "Scene: %s (ID: %s, Channel: %s)",
                     scene.name,
-                    scene_id,
-                    channel,
+                    scene.scene_id,
+                    scene.channel,
                 )
 
-                # Read scene details
-                scene_details = await gateway.read_scene(scene_id, channel)
-
-                _LOGGER.info(
-                    "✓ Scene details - Name: '%s', Devices: %d",
-                    scene_details["name"],
-                    len(scene_details["devices"]),
-                )
+                _LOGGER.info("✓ Scene has %d device(s)", len(scene.devices))
 
                 # Show device details with properties
-                for i, device in enumerate(
-                    scene_details["devices"][:5], 1
-                ):  # Show first 5 devices
+                for i, device in enumerate(scene.devices[:5], 1):  # Show first 5 devices
                     _LOGGER.info(
                         "  Device %d: Type: %s, Channel: %s, Address: %s",
                         i,
@@ -816,16 +810,18 @@ class DaliGatewayTester:
                             "      White Level: %s", light_status["white_level"]
                         )
 
-                if len(scene_details["devices"]) > 5:
+                if len(scene.devices) > 5:
                     _LOGGER.info(
-                        "  ... and %d more devices", len(scene_details["devices"]) - 5
+                        "  ... and %d more devices", len(scene.devices) - 5
                     )
 
+                _LOGGER.info("")  # Blank line between scenes
+
         except (DaliGatewayError, RuntimeError) as e:
-            _LOGGER.error("Read scene test failed: %s", e)
+            _LOGGER.error("Scene device access failed: %s", e)
             return False
         else:
-            _LOGGER.info("✓ Read scene commands completed successfully")
+            _LOGGER.info("✓ Scene device access completed successfully")
             return True
 
     def _on_online_status_callback(self, status: bool) -> None:
