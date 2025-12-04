@@ -781,7 +781,9 @@ class DaliGatewayTester:
                 _LOGGER.info("✓ Scene has %d device(s)", len(scene.devices))
 
                 # Show device details with properties
-                for i, device in enumerate(scene.devices[:5], 1):  # Show first 5 devices
+                for i, device in enumerate(
+                    scene.devices[:5], 1
+                ):  # Show first 5 devices
                     _LOGGER.info(
                         "  Device %d: Type: %s, Channel: %s, Address: %s",
                         i,
@@ -811,9 +813,7 @@ class DaliGatewayTester:
                         )
 
                 if len(scene.devices) > 5:
-                    _LOGGER.info(
-                        "  ... and %d more devices", len(scene.devices) - 5
-                    )
+                    _LOGGER.info("  ... and %d more devices", len(scene.devices) - 5)
 
                 _LOGGER.info("")  # Blank line between scenes
 
