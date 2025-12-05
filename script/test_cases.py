@@ -344,7 +344,7 @@ class DaliGatewayTester:
             _LOGGER.error("Version test failed: %s", e)
             return False
 
-        return True # Not a failure, version may arrive shortly after connection
+        return True  # Not a failure, version may arrive shortly after connection
 
     async def test_device_discovery(self) -> bool:
         """Test device discovery."""
