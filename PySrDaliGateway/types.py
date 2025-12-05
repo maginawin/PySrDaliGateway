@@ -70,9 +70,21 @@ class SceneDeviceType(TypedDict):
     property: LightStatus
 
 
-class VersionType(TypedDict):
-    software: str
-    firmware: str
+class GroupDeviceType(TypedDict):
+    """Device information within a group"""
+
+    unique_id: str
+    id: str
+    name: str
+    dev_type: str
+    channel: int
+    address: int
+    status: str
+    dev_sn: str
+    area_name: str
+    area_id: str
+    model: str
+    prop: List[str]
 
 
 class DeviceParamType(TypedDict, total=False):

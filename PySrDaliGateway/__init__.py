@@ -16,7 +16,6 @@ from .types import (
     MotionStatus,
     PanelEventType,
     PanelStatus,
-    VersionType,
 )
 
 __all__ = [
@@ -34,6 +33,5 @@ __all__ = [
     "PanelEventType",
     "PanelStatus",
     "Scene",
-    "VersionType",
     "__version__",
 ]

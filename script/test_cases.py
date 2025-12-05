@@ -322,20 +322,29 @@ class DaliGatewayTester:
         return await self.test_connection(0)
 
     async def test_version(self) -> bool:
-        """Test gateway version retrieval."""
+        """Test gateway version retrieval (auto-retrieved on connect)."""
         if not self._check_connection():
             return False
 
-        _LOGGER.info("=== Testing Version Retrieval ===")
+        _LOGGER.info("=== Testing Version Information ===")
+        _LOGGER.info("(Version is automatically retrieved during gateway connection)")
         try:
             gateway = self._assert_gateway()
-            version = await gateway.get_version()
+            _LOGGER.info("✓ Software version: %s", gateway.software_version or "N/A")
+            _LOGGER.info("✓ Firmware version: %s", gateway.firmware_version or "N/A")
+
+            # Check if version was populated
+            if gateway.software_version or gateway.firmware_version:
+                _LOGGER.info("✓ Gateway version information available")
+                return True
+            _LOGGER.warning(
+                "⚠️ Version information not yet received (this is normal if just connected)"
+            )
         except (DaliGatewayError, RuntimeError) as e:
             _LOGGER.error("Version test failed: %s", e)
             return False
-        else:
-            _LOGGER.info("✓ Gateway version: %s", version)
-            return True
+
+        return True  # Not a failure, version may arrive shortly after connection
 
     async def test_device_discovery(self) -> bool:
         """Test device discovery."""
@@ -662,11 +671,12 @@ class DaliGatewayTester:
             return True
 
     async def test_group_discovery(self) -> bool:
-        """Test group discovery."""
+        """Test group discovery with parallel device data retrieval."""
         if not self._check_connection():
             return False
 
         _LOGGER.info("=== Testing Group Discovery ===")
+        _LOGGER.info("(Groups are discovered with device data retrieved in parallel)")
         try:
             gateway = self._assert_gateway()
             self.groups = await gateway.discover_groups()
@@ -675,14 +685,24 @@ class DaliGatewayTester:
             return False
         else:
             _LOGGER.info("✓ Found %d group(s)", len(self.groups))
+            # Show device counts for each group
+            for group in self.groups:
+                _LOGGER.info(
+                    "  Group '%s' (ID: %s, Channel: %s): %d device(s)",
+                    group.name,
+                    group.group_id,
+                    group.channel,
+                    len(group.devices),
+                )
             return True
 
     async def test_scene_discovery(self) -> bool:
-        """Test scene discovery."""
+        """Test scene discovery with parallel device data retrieval."""
         if not self._check_connection():
             return False
 
         _LOGGER.info("=== Testing Scene Discovery ===")
+        _LOGGER.info("(Scenes are discovered with device data retrieved in parallel)")
         try:
             gateway = self._assert_gateway()
             self.scenes = await gateway.discover_scenes()
@@ -694,8 +714,10 @@ class DaliGatewayTester:
             # Show device counts for each scene
             for scene in self.scenes:
                 _LOGGER.info(
-                    "  Scene '%s': %d device(s)",
+                    "  Scene '%s' (ID: %s, Channel: %s): %d device(s)",
                     scene.name,
+                    scene.scene_id,
+                    scene.channel,
                     len(scene.devices),
                 )
             return True

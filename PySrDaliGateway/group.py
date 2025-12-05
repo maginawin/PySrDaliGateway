@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, List, Protocol, Tuple
 
 from .base import DaliObjectBase
 from .helper import gen_group_unique_id
-from .types import CallbackEventType, ListenerCallback
+from .types import CallbackEventType, GroupDeviceType, ListenerCallback
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,10 +32,6 @@ class SupportsGroupCommands(Protocol):
         """Register a listener for a specific event type."""
         raise NotImplementedError
 
-    async def read_group(self, group_id: int, channel: int) -> Dict[str, Any]:
-        """Read group information from gateway."""
-        raise NotImplementedError
-
 
 class Group(DaliObjectBase):
     """Dali Gateway Group"""
@@ -47,12 +43,14 @@ class Group(DaliObjectBase):
         name: str,
         channel: int,
         area_id: str,
+        devices: List[GroupDeviceType],
     ) -> None:
         self._client = command_client
         self.group_id = group_id
         self.name = name
         self.channel = channel
         self.area_id = area_id
+        self.devices = devices
         self.unique_id = gen_group_unique_id(group_id, channel, command_client.gw_sn)
         self.gw_sn = command_client.gw_sn
 
@@ -119,7 +117,3 @@ class Group(DaliObjectBase):
     ) -> Callable[[], None]:
         """Register a listener for this group's events."""
         return self._client.register_listener(event_type, listener, dev_id=self.gw_sn)
-
-    async def read_group(self) -> Dict[str, Any]:
-        """Read this group's information from the gateway."""
-        return await self._client.read_group(self.group_id, self.channel)
