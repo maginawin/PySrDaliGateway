@@ -42,13 +42,13 @@ from .types import (
     DeviceParamCommand,
     DeviceParamType,
     EnergyData,
+    GroupDeviceType,
     IlluminanceStatus,
     LightStatus,
     MotionStatus,
     PanelStatus,
     SceneDeviceType,
     SensorParamType,
-    VersionType,
 )
 from .udp_client import send_identify_gateway
 
@@ -81,6 +81,8 @@ class DaliGateway:
         self._channel_total = (
             [int(ch) for ch in channel_total] if channel_total else [0]
         )
+        self.software_version: str = ""
+        self.firmware_version: str = ""
 
         # MQTT topics
         self._sub_topic = f"/{self._gw_sn}/client/reciver/"
@@ -116,14 +118,12 @@ class DaliGateway:
         self._scenes_received = asyncio.Event()
         self._groups_received = asyncio.Event()
         self._devices_received = asyncio.Event()
-        self._version_received = asyncio.Event()
 
         self._scenes_result: list[Scene] = []
         self._groups_result: list[Group] = []
         self._devices_result: list[Device] = []
-        self._version_result: VersionType | None = None
-        self._read_group_received = asyncio.Event()
-        self._read_group_result: Dict[str, Any] | None = None
+        self._read_group_events: Dict[Tuple[int, int], asyncio.Event] = {}
+        self._read_group_results: Dict[Tuple[int, int], Dict[str, Any]] = {}
         self._read_scene_events: Dict[Tuple[int, int], asyncio.Event] = {}
         self._read_scene_results: Dict[Tuple[int, int], Dict[str, Any]] = {}
 
@@ -577,11 +577,8 @@ class DaliGateway:
                     _LOGGER.error("Error converting energy value: %s", str(e))
 
     def _process_get_version_response(self, payload_json: Dict[str, Any]) -> None:
-        self._version_result = VersionType(
-            software=payload_json.get("data", {}).get("swVersion", ""),
-            firmware=payload_json.get("data", {}).get("fwVersion", ""),
-        )
-        self._version_received.set()
+        self.software_version = payload_json.get("data", {}).get("swVersion", "")
+        self.firmware_version = payload_json.get("data", {}).get("fwVersion", "")
 
     def _process_get_energy_response(self, payload_json: Dict[str, Any]) -> None:
         data_list = payload_json.get("data")
@@ -707,6 +704,7 @@ class DaliGateway:
                         name=name,
                         channel=channel,
                         area_id=area_id,
+                        devices=[],
                     )
                 )
 
@@ -716,34 +714,35 @@ class DaliGateway:
         group_id = payload.get("groupId", 0)
         group_name = payload.get("name", "")
         channel = payload.get("channel", 0)
+        group_key = (group_id, channel)
         raw_devices = payload.get("data", [])
 
-        devices: List[Dict[str, Any]] = []
+        # Create GroupDeviceType objects from raw device data
+        devices: List[GroupDeviceType] = []
         for device_data in raw_devices:
             dev_type = str(device_data.get("devType", ""))
             channel_id = int(device_data.get("channel", 0))
             address = int(device_data.get("address", 0))
 
-            devices.append(
-                {
-                    "unique_id": gen_device_unique_id(
-                        dev_type, channel_id, address, self._gw_sn
-                    ),
-                    "id": str(device_data.get("devId", "")),
-                    "name": gen_device_name(dev_type, channel_id, address),
-                    "dev_type": dev_type,
-                    "channel": channel_id,
-                    "address": address,
-                    "status": "",
-                    "dev_sn": "",
-                    "area_name": "",
-                    "area_id": "",
-                    "model": DEVICE_MODEL_MAP.get(dev_type, "Unknown"),
-                    "prop": [],
-                }
-            )
+            device: GroupDeviceType = {
+                "unique_id": gen_device_unique_id(
+                    dev_type, channel_id, address, self._gw_sn
+                ),
+                "id": str(device_data.get("devId", "")),
+                "name": gen_device_name(dev_type, channel_id, address),
+                "dev_type": dev_type,
+                "channel": channel_id,
+                "address": address,
+                "status": "",
+                "dev_sn": "",
+                "area_name": "",
+                "area_id": "",
+                "model": DEVICE_MODEL_MAP.get(dev_type, "Unknown"),
+                "prop": [],
+            }
+            devices.append(device)
 
-        self._read_group_result = {
+        self._read_group_results[group_key] = {
             "unique_id": gen_group_unique_id(group_id, channel, self._gw_sn),
             "id": group_id,
             "name": group_name,
@@ -751,7 +750,10 @@ class DaliGateway:
             "area_id": "",
             "devices": devices,
         }
-        self._read_group_received.set()
+
+        # Signal completion for this specific group
+        if group_key in self._read_group_events:
+            self._read_group_events[group_key].set()
 
     def _process_read_scene_response(self, payload: Dict[str, Any]) -> None:
         scene_id = payload.get("sceneId", 0)
@@ -1036,6 +1038,8 @@ class DaliGateway:
                     self._gw_ip,
                     self._port,
                 )
+                # Request version information
+                self._request_version()
                 return
 
         except asyncio.TimeoutError as err:
@@ -1097,31 +1101,15 @@ class DaliGateway:
                 f"Failed to disconnect from gateway {self._gw_sn}: {exc}"
             ) from exc
 
-    async def get_version(self) -> VersionType | None:
-        self._version_received = asyncio.Event()
+    def _request_version(self) -> None:
+        """Request gateway version information via MQTT."""
         payload = {
             "cmd": "getVersion",
             "msgId": str(int(time.time())),
             "gwSn": self._gw_sn,
         }
-
-        _LOGGER.debug("Gateway %s: Sending get version command", self._gw_sn)
+        _LOGGER.debug("Gateway %s: Requesting version information", self._gw_sn)
         self._mqtt_client.publish(self._pub_topic, json.dumps(payload))
-
-        try:
-            await asyncio.wait_for(self._version_received.wait(), timeout=30.0)
-        except asyncio.TimeoutError:
-            _LOGGER.warning(
-                "Gateway %s: Timeout waiting for version response", self._gw_sn
-            )
-
-        _LOGGER.info(
-            "Gateway %s: Version retrieved - SW: %s, FW: %s",
-            self._gw_sn,
-            self._version_result["software"] if self._version_result else "N/A",
-            self._version_result["firmware"] if self._version_result else "N/A",
-        )
-        return self._version_result
 
     async def identify_gateway(self) -> None:
         """Make the gateway's indicator light blink to identify it physically.
@@ -1132,7 +1120,12 @@ class DaliGateway:
         await send_identify_gateway(self._gw_sn)
 
     async def read_group(self, group_id: int, channel: int = 0) -> Dict[str, Any]:
-        self._read_group_received = asyncio.Event()
+        group_key = (group_id, channel)
+
+        # Create event for this specific group read
+        self._read_group_events[group_key] = asyncio.Event()
+        self._read_group_results.pop(group_key, None)  # Clear any previous result
+
         payload: Dict[str, Any] = {
             "cmd": "readGroup",
             "msgId": str(int(time.time())),
@@ -1141,41 +1134,61 @@ class DaliGateway:
             "groupId": group_id,
         }
 
-        _LOGGER.debug("Gateway %s: Sending read group command", self._gw_sn)
+        _LOGGER.debug(
+            "Gateway %s: Sending read group command for group %s channel %s",
+            self._gw_sn,
+            group_id,
+            channel,
+        )
         self._mqtt_client.publish(self._pub_topic, json.dumps(payload))
 
         try:
-            await asyncio.wait_for(self._read_group_received.wait(), timeout=30.0)
+            await asyncio.wait_for(
+                self._read_group_events[group_key].wait(), timeout=30.0
+            )
         except asyncio.TimeoutError as err:
             _LOGGER.error(
-                "Gateway %s: Timeout waiting for read group response for group %s",
+                "Gateway %s: Timeout waiting for read group response for group %s channel %s",
                 self._gw_sn,
                 group_id,
+                channel,
             )
+            # Cleanup
+            self._read_group_events.pop(group_key, None)
+            self._read_group_results.pop(group_key, None)
             raise DaliGatewayError(
-                f"Timeout reading group {group_id} from gateway {self._gw_sn}",
+                f"Timeout reading group {group_id} channel {channel} from gateway {self._gw_sn}",
                 self._gw_sn,
             ) from err
 
-        if not self._read_group_result:
+        # Get result
+        result = self._read_group_results.get(group_key)
+
+        # Cleanup
+        self._read_group_events.pop(group_key, None)
+        self._read_group_results.pop(group_key, None)
+
+        if not result:
             _LOGGER.error(
-                "Gateway %s: Failed to read group %s - group may not exist",
+                "Gateway %s: Failed to read group %s channel %s - group may not exist",
                 self._gw_sn,
                 group_id,
+                channel,
             )
             raise DaliGatewayError(
-                f"Failed to read group {group_id} from gateway {self._gw_sn}. Group may not exist.",
+                f"Group {group_id} channel {channel} not found on gateway {self._gw_sn}",
                 self._gw_sn,
             )
 
         _LOGGER.info(
-            "Gateway %s: Group read completed - ID: %s, Name: %s, Devices: %d",
+            "Gateway %s: Group read completed - ID: %s, Channel: %s, Name: %s, Devices: %d",
             self._gw_sn,
-            self._read_group_result["id"],
-            self._read_group_result["name"],
-            len(self._read_group_result["devices"]),
+            result["id"],
+            result["channel"],
+            result["name"],
+            len(result["devices"]),
         )
-        return self._read_group_result
+        return result
 
     async def read_scene(self, scene_id: int, channel: int = 0) -> Dict[str, Any]:
         scene_key = (scene_id, channel)
@@ -1276,6 +1289,12 @@ class DaliGateway:
         return self._devices_result
 
     async def discover_groups(self) -> list[Group]:
+        """Discover all groups and read their detailed configuration in parallel.
+
+        Returns only groups that were successfully read. Groups that fail to read
+        (timeout, errors, etc.) are logged but not included in the result.
+        """
+        # Phase 1: Discover basic group list
         self._groups_received = asyncio.Event()
         self._groups_result.clear()
         search_payload = {
@@ -1294,13 +1313,74 @@ class DaliGateway:
             _LOGGER.warning(
                 "Gateway %s: Timeout waiting for group discovery response", self._gw_sn
             )
+            return []
+
+        if not self._groups_result:
+            _LOGGER.info("Gateway %s: No groups found", self._gw_sn)
+            return []
 
         _LOGGER.info(
-            "Gateway %s: Group discovery completed, found %d group(s)",
+            "Gateway %s: Found %d group(s), reading details in parallel...",
             self._gw_sn,
             len(self._groups_result),
         )
-        return self._groups_result
+
+        # Phase 2: Read detailed group data in parallel
+        # Store basic group info for reconstruction
+        basic_groups: List[Tuple[int, str, int, str]] = [
+            (group.group_id, group.name, group.channel, group.area_id)
+            for group in self._groups_result
+        ]
+
+        # Create parallel read tasks
+        read_tasks = [
+            self.read_group(group_id, channel)
+            for group_id, _, channel, _ in basic_groups
+        ]
+
+        # Execute all reads in parallel with exception handling
+        results = await asyncio.gather(*read_tasks, return_exceptions=True)
+
+        # Phase 3: Construct Group objects with device data
+        groups_with_devices: list[Group] = []
+        for (group_id, name, channel, area_id), result in zip(basic_groups, results):
+            if isinstance(result, Exception):
+                _LOGGER.error(
+                    "Gateway %s: Failed to read group %s (channel %s): %s",
+                    self._gw_sn,
+                    group_id,
+                    channel,
+                    result,
+                )
+                continue
+
+            # Successfully read group data - result is Dict[str, Any]
+            result_dict = cast("Dict[str, Any]", result)
+            try:
+                group = Group(
+                    command_client=self,
+                    group_id=group_id,
+                    name=result_dict.get("name", name),
+                    channel=channel,
+                    area_id=result_dict.get("area_id", area_id),
+                    devices=result_dict.get("devices", []),
+                )
+                groups_with_devices.append(group)
+            except (KeyError, TypeError, ValueError) as e:
+                _LOGGER.error(
+                    "Gateway %s: Failed to create Group object for group %s: %s",
+                    self._gw_sn,
+                    group_id,
+                    e,
+                )
+
+        _LOGGER.info(
+            "Gateway %s: Group discovery completed, %d/%d group(s) successfully read",
+            self._gw_sn,
+            len(groups_with_devices),
+            len(basic_groups),
+        )
+        return groups_with_devices
 
     async def discover_scenes(self) -> list[Scene]:
         """Discover all scenes and read their detailed configuration in parallel.
