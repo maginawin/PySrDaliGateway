@@ -60,6 +60,10 @@ class DaliGatewayTester:
         passwd: str | None = None,
     ) -> TestDaliGateway:
         """Create a detached copy of a gateway with optional credential overrides."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
         return TestDaliGateway(
             gw_sn=gateway.gw_sn,
             gw_ip=gateway.gw_ip,
@@ -69,6 +73,7 @@ class DaliGatewayTester:
             name=gateway.name,
             channel_total=gateway.channel_total,
             is_tls=gateway.is_tls,
+            loop=loop,
         )
 
     async def create_gateway_direct(
@@ -85,6 +90,10 @@ class DaliGatewayTester:
         """Create gateway configuration directly without discovery (testing mode)."""
         _LOGGER.info("=== Testing Mode: Creating Gateway Configuration Directly ===")
 
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
         gateway = TestDaliGateway(
             gw_sn=gw_sn,
             gw_ip=gw_ip,
@@ -94,6 +103,7 @@ class DaliGatewayTester:
             name=name or gw_sn,
             channel_total=channel_total or [0],
             is_tls=is_tls,
+            loop=loop,
         )
 
         self.gateways = [gateway]
@@ -128,6 +138,10 @@ class DaliGatewayTester:
                 )
 
                 # Create gateway directly from cache
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = None
                 gateway = TestDaliGateway(
                     gw_sn=cached["gw_sn"],
                     gw_ip=cached["gw_ip"],
@@ -137,6 +151,7 @@ class DaliGatewayTester:
                     name=cached.get("name"),
                     channel_total=cached.get("channel_total"),
                     is_tls=cached.get("is_tls", False),
+                    loop=loop,
                 )
                 self.gateways = [gateway]
                 _LOGGER.info(
@@ -937,7 +952,12 @@ class DaliGatewayTester:
         return on_sensor_param
 
     async def test_gateway_status_sync(self) -> bool:
-        """Test gateway status synchronization through online_status callback."""
+        """Test gateway status synchronization through online_status callback.
+
+        Note: After disconnect(), the paho MQTT client's network loop is stopped.
+        Reconnecting with the same instance may not work reliably, so we create
+        a new gateway instance for the reconnection test (matching the SDK design).
+        """
         if not self._check_connection():
             return False
 
@@ -980,9 +1000,25 @@ class DaliGatewayTester:
 
             _LOGGER.info("✓ Gateway offline status correctly received")
 
-            # Test reconnect - should trigger online status
+            # Test reconnect - create a new gateway instance since paho MQTT client
+            # may not reconnect reliably after loop_stop() + disconnect()
             _LOGGER.info("Testing reconnect status event...")
-            await gateway.connect()
+            _LOGGER.info("Creating new gateway instance for reconnection...")
+
+            # Create a new gateway instance with the same credentials
+            new_gateway = self._clone_gateway(gateway)
+
+            # Register online status callback on the new gateway
+            new_gateway.register_listener(
+                CallbackEventType.ONLINE_STATUS,
+                self._on_online_status_callback,
+                dev_id=new_gateway.gw_sn,
+            )
+
+            await new_gateway.connect()
+
+            # Replace the old gateway with the new one
+            self.gateway = new_gateway
             self.is_connected = True
 
             # Wait a bit for callback to be called

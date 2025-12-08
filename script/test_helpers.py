@@ -121,6 +121,7 @@ class TestDaliGateway(DaliGateway):
         name: str | None = None,
         channel_total: Sequence[int] | None = None,
         is_tls: bool = False,
+        loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
         super().__init__(
             gw_sn,
@@ -131,6 +132,7 @@ class TestDaliGateway(DaliGateway):
             name=name,
             channel_total=channel_total,
             is_tls=is_tls,
+            loop=loop,
         )
         # Track identify responses
         self._identify_received = asyncio.Event()
