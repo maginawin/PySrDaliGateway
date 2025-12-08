@@ -1,8 +1,10 @@
 """Dali Gateway"""
 
 import asyncio
+from enum import Enum, auto
 import json
 import logging
+import random
 import ssl
 import time
 from typing import Any, Callable, Dict, List, Sequence, Tuple, Union, cast
@@ -54,6 +56,21 @@ from .udp_client import send_identify_gateway
 
 _LOGGER = logging.getLogger(__name__)
 
+# Reconnection parameters
+_RECONNECT_INITIAL_DELAY = 1.0  # seconds
+_RECONNECT_MAX_DELAY = 60.0  # seconds
+_RECONNECT_BACKOFF_MULTIPLIER = 2.0
+_RECONNECT_JITTER = 0.1  # ±10%
+
+
+class ConnectionState(Enum):
+    """Connection state machine for gateway."""
+
+    DISCONNECTED = auto()
+    CONNECTING = auto()
+    CONNECTED = auto()
+    RECONNECTING = auto()
+
 
 class DaliGateway:
     """Dali Gateway"""
@@ -69,6 +86,7 @@ class DaliGateway:
         name: str | None = None,
         channel_total: Sequence[int] | None = None,
         is_tls: bool = False,
+        loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
         # Gateway information
         self._gw_sn = gw_sn
@@ -83,6 +101,15 @@ class DaliGateway:
         )
         self.software_version: str = ""
         self.firmware_version: str = ""
+
+        # Event loop for thread-safe callback dispatch
+        self._loop = loop
+
+        # Connection state machine
+        self._connection_state = ConnectionState.DISCONNECTED
+        self._reconnect_task: asyncio.TimerHandle | None = None
+        self._reconnect_delay = _RECONNECT_INITIAL_DELAY
+        self._shutdown_requested = False
 
         # MQTT topics
         self._sub_topic = f"/{self._gw_sn}/client/reciver/"
@@ -266,6 +293,35 @@ class DaliGateway:
     def name(self) -> str:
         return self._name
 
+    @property
+    def is_connected(self) -> bool:
+        """Return True if the gateway is connected."""
+        return self._connection_state == ConnectionState.CONNECTED
+
+    @property
+    def connection_state(self) -> ConnectionState:
+        """Return the current connection state."""
+        return self._connection_state
+
+    def _dispatch_callback(self, callback: Callable[..., Any], *args: Any) -> None:
+        """Dispatch a callback in a thread-safe manner.
+
+        If an event loop is configured and running, use call_soon_threadsafe
+        to schedule the callback on the event loop thread. Otherwise, call
+        the callback directly (for backward compatibility).
+        """
+        if self._loop is not None and self._loop.is_running():
+            self._loop.call_soon_threadsafe(callback, *args)
+        else:
+            callback(*args)
+
+    def _set_event_threadsafe(self, event: asyncio.Event) -> None:
+        """Set an asyncio.Event in a thread-safe manner."""
+        if self._loop is not None and self._loop.is_running():
+            self._loop.call_soon_threadsafe(event.set)
+        else:
+            event.set()
+
     def register_listener(
         self,
         event_type: CallbackEventType,
@@ -314,10 +370,13 @@ class DaliGateway:
             SensorParamType,
         ],
     ) -> None:
-        """Notify all registered listeners for a specific event type."""
+        """Notify all registered listeners for a specific event type.
+
+        Uses thread-safe dispatch when an event loop is configured.
+        """
         # Notify device-specific listeners - no dev_id parameter needed since filtered
         for listener in self._device_listeners.get(event_type, {}).get(dev_id, []):
-            listener(data)
+            self._dispatch_callback(listener, data)
 
     def _on_connect(
         self,
@@ -328,9 +387,14 @@ class DaliGateway:
         properties: Any = None,
     ) -> None:
         self._connect_result = rc
-        self._connection_event.set()
+        # Thread-safe Event.set()
+        self._set_event_threadsafe(self._connection_event)
 
         if rc == 0:
+            # Update connection state
+            self._connection_state = ConnectionState.CONNECTED
+            self._reconnect_delay = _RECONNECT_INITIAL_DELAY  # Reset backoff
+
             _LOGGER.debug(
                 "Gateway %s: MQTT connection established to %s:%s",
                 self._gw_sn,
@@ -342,7 +406,7 @@ class DaliGateway:
                 "Gateway %s: Subscribed to MQTT topic %s", self._gw_sn, self._sub_topic
             )
 
-            # Notify gateway-level listeners
+            # Notify gateway-level listeners (thread-safe via _notify_listeners)
             self._notify_listeners(CallbackEventType.ONLINE_STATUS, self._gw_sn, True)
             # Notify all device-specific listeners that gateway is online
             for device_id in self._device_listeners[CallbackEventType.ONLINE_STATUS]:
@@ -350,7 +414,8 @@ class DaliGateway:
                     for listener in self._device_listeners[
                         CallbackEventType.ONLINE_STATUS
                     ][device_id]:
-                        listener(True)
+                        # Use thread-safe dispatch
+                        self._dispatch_callback(listener, True)
         else:
             _LOGGER.error(
                 "Gateway %s: MQTT connection failed with code %s", self._gw_sn, rc
@@ -374,7 +439,10 @@ class DaliGateway:
         else:
             reason_code = 0
 
-        if reason_code != 0:
+        was_connected = self._connection_state == ConnectionState.CONNECTED
+        unexpected_disconnect = reason_code != 0 and was_connected
+
+        if unexpected_disconnect:
             _LOGGER.warning(
                 "Gateway %s: Unexpected MQTT disconnection (%s:%s) - Reason code: %s",
                 self._gw_sn,
@@ -382,10 +450,17 @@ class DaliGateway:
                 self._port,
                 reason_code,
             )
+            # Set state to RECONNECTING if we should attempt reconnection
+            if not self._shutdown_requested:
+                self._connection_state = ConnectionState.RECONNECTING
+                self._schedule_reconnect()
+            else:
+                self._connection_state = ConnectionState.DISCONNECTED
         else:
             _LOGGER.debug("Gateway %s: MQTT disconnection completed", self._gw_sn)
+            self._connection_state = ConnectionState.DISCONNECTED
 
-        # Notify gateway-level listeners
+        # Notify gateway-level listeners (thread-safe via _notify_listeners)
         self._notify_listeners(CallbackEventType.ONLINE_STATUS, self._gw_sn, False)
         # Notify all device-specific listeners that gateway is offline
         for device_id in self._device_listeners[CallbackEventType.ONLINE_STATUS]:
@@ -393,7 +468,8 @@ class DaliGateway:
                 for listener in self._device_listeners[CallbackEventType.ONLINE_STATUS][
                     device_id
                 ]:
-                    listener(False)
+                    # Use thread-safe dispatch
+                    self._dispatch_callback(listener, False)
 
     def _on_message(
         self, client: paho_mqtt.Client, userdata: Any, msg: paho_mqtt.MQTTMessage
@@ -1011,9 +1087,112 @@ class DaliGateway:
     def get_credentials(self) -> tuple[str, str]:
         return self._username, self._passwd
 
+    def _schedule_reconnect(self) -> None:
+        """Schedule a reconnection attempt with exponential backoff.
+
+        Called from paho-mqtt thread, so must be thread-safe.
+        """
+        if self._shutdown_requested:
+            _LOGGER.debug(
+                "Gateway %s: Shutdown requested, skipping reconnection", self._gw_sn
+            )
+            return
+
+        # Add jitter to prevent thundering herd
+        jitter = self._reconnect_delay * _RECONNECT_JITTER * (2 * random.random() - 1)
+        delay = self._reconnect_delay + jitter
+
+        _LOGGER.info(
+            "Gateway %s: Scheduling reconnection in %.1f seconds",
+            self._gw_sn,
+            delay,
+        )
+
+        # Schedule reconnection on the event loop
+        if self._loop is not None and self._loop.is_running():
+            self._reconnect_task = self._loop.call_later(
+                delay,
+                lambda: asyncio.ensure_future(self._reconnect(), loop=self._loop),
+            )
+        else:
+            _LOGGER.warning(
+                "Gateway %s: No event loop available for reconnection",
+                self._gw_sn,
+            )
+
+        # Increase delay for next attempt (exponential backoff)
+        self._reconnect_delay = min(
+            self._reconnect_delay * _RECONNECT_BACKOFF_MULTIPLIER,
+            _RECONNECT_MAX_DELAY,
+        )
+
+    async def _reconnect(self) -> None:
+        """Attempt to reconnect to the gateway."""
+        if self._shutdown_requested:
+            _LOGGER.debug(
+                "Gateway %s: Shutdown requested, aborting reconnection", self._gw_sn
+            )
+            return
+
+        _LOGGER.info("Gateway %s: Attempting reconnection...", self._gw_sn)
+
+        try:
+            # Reset connection state
+            self._connection_event.clear()
+            self._connect_result = None
+
+            # Attempt reconnection
+            self._mqtt_client.reconnect()
+
+            # Wait for connection result
+            await asyncio.wait_for(self._connection_event.wait(), timeout=10)
+
+            if self._connect_result == 0:  # pyright: ignore[reportUnnecessaryComparison]
+                _LOGGER.info(
+                    "Gateway %s: Reconnection successful",
+                    self._gw_sn,
+                )
+                # Request version information
+                self._request_version()
+            else:
+                _LOGGER.warning(
+                    "Gateway %s: Reconnection failed with code %s",
+                    self._gw_sn,
+                    self._connect_result,
+                )
+                # Schedule another reconnection attempt
+                if not self._shutdown_requested:
+                    self._connection_state = ConnectionState.RECONNECTING
+                    self._schedule_reconnect()
+
+        except (asyncio.TimeoutError, OSError, ConnectionRefusedError) as err:
+            _LOGGER.warning(
+                "Gateway %s: Reconnection attempt failed: %s",
+                self._gw_sn,
+                err,
+            )
+            # Schedule another reconnection attempt
+            if not self._shutdown_requested:
+                self._connection_state = ConnectionState.RECONNECTING
+                self._schedule_reconnect()
+
+    def stop_reconnection(self) -> None:
+        """Stop any pending reconnection attempts.
+
+        Should be called before disconnect() to prevent auto-reconnection.
+        """
+        self._shutdown_requested = True
+        if self._reconnect_task is not None:
+            self._reconnect_task.cancel()
+            self._reconnect_task = None
+            _LOGGER.debug("Gateway %s: Cancelled pending reconnection", self._gw_sn)
+
     async def connect(self) -> None:
         self._connection_event.clear()
         self._connect_result = None
+        self._shutdown_requested = False  # Reset shutdown flag for new connection
+        self._reconnect_delay = _RECONNECT_INITIAL_DELAY  # Reset backoff
+        self._connection_state = ConnectionState.CONNECTING
         self._mqtt_client.username_pw_set(self._username, self._passwd)
 
         if self._is_tls:
@@ -1088,10 +1267,14 @@ class DaliGateway:
         )
 
     async def disconnect(self) -> None:
+        # Stop any pending reconnection attempts first
+        self.stop_reconnection()
+
         try:
             self._mqtt_client.loop_stop()
             self._mqtt_client.disconnect()
             self._connection_event.clear()
+            self._connection_state = ConnectionState.DISCONNECTED
             _LOGGER.info("Successfully disconnected from gateway %s", self._gw_sn)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             _LOGGER.error(
