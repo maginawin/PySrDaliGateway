@@ -1472,7 +1472,10 @@ class DaliGateway:
         return self._devices_result
 
     async def discover_groups(self) -> list[Group]:
-        """Discover all groups and read their detailed configuration in parallel.
+        """Discover all groups and read their detailed configuration with limited concurrency.
+
+        Uses a semaphore to limit parallel read_group() calls, preventing MQTT message
+        storms that can overload the event loop during multi-gateway startup.
 
         Returns only groups that were successfully read. Groups that fail to read
         (timeout, errors, etc.) are logged but not included in the result.
@@ -1503,25 +1506,32 @@ class DaliGateway:
             return []
 
         _LOGGER.info(
-            "Gateway %s: Found %d group(s), reading details in parallel...",
+            "Gateway %s: Found %d group(s), reading details with limited concurrency...",
             self._gw_sn,
             len(self._groups_result),
         )
 
-        # Phase 2: Read detailed group data in parallel
+        # Phase 2: Read detailed group data with limited concurrency
+        # Limit concurrent reads to avoid MQTT message storms
+        read_semaphore = asyncio.Semaphore(3)
+
+        async def read_group_with_limit(group_id: int, channel: int) -> Dict[str, Any]:
+            async with read_semaphore:
+                return await self.read_group(group_id, channel)
+
         # Store basic group info for reconstruction
         basic_groups: List[Tuple[int, str, int, str]] = [
             (group.group_id, group.name, group.channel, group.area_id)
             for group in self._groups_result
         ]
 
-        # Create parallel read tasks
+        # Create read tasks with semaphore limit
         read_tasks = [
-            self.read_group(group_id, channel)
+            read_group_with_limit(group_id, channel)
             for group_id, _, channel, _ in basic_groups
         ]
 
-        # Execute all reads in parallel with exception handling
+        # Execute all reads with exception handling
         results = await asyncio.gather(*read_tasks, return_exceptions=True)
 
         # Phase 3: Construct Group objects with device data
@@ -1566,7 +1576,10 @@ class DaliGateway:
         return groups_with_devices
 
     async def discover_scenes(self) -> list[Scene]:
-        """Discover all scenes and read their detailed configuration in parallel.
+        """Discover all scenes and read their detailed configuration with limited concurrency.
+
+        Uses a semaphore to limit parallel read_scene() calls, preventing MQTT message
+        storms that can overload the event loop during multi-gateway startup.
 
         Returns only scenes that were successfully read. Scenes that fail to read
         (timeout, errors, etc.) are logged but not included in the result.
@@ -1597,25 +1610,32 @@ class DaliGateway:
             return []
 
         _LOGGER.info(
-            "Gateway %s: Found %d scene(s), reading details in parallel...",
+            "Gateway %s: Found %d scene(s), reading details with limited concurrency...",
             self._gw_sn,
             len(self._scenes_result),
         )
 
-        # Phase 2: Read detailed scene data in parallel
+        # Phase 2: Read detailed scene data with limited concurrency
+        # Limit concurrent reads to avoid MQTT message storms
+        read_semaphore = asyncio.Semaphore(3)
+
+        async def read_scene_with_limit(scene_id: int, channel: int) -> Dict[str, Any]:
+            async with read_semaphore:
+                return await self.read_scene(scene_id, channel)
+
         # Store basic scene info for reconstruction
         basic_scenes: List[Tuple[int, str, int, str]] = [
             (scene.scene_id, scene.name, scene.channel, scene.area_id)
             for scene in self._scenes_result
         ]
 
-        # Create parallel read tasks
+        # Create read tasks with semaphore limit
         read_tasks = [
-            self.read_scene(scene_id, channel)
+            read_scene_with_limit(scene_id, channel)
             for scene_id, _, channel, _ in basic_scenes
         ]
 
-        # Execute all reads in parallel with exception handling
+        # Execute all reads with exception handling
         results = await asyncio.gather(*read_tasks, return_exceptions=True)
 
         # Phase 3: Construct Scene objects with device data
