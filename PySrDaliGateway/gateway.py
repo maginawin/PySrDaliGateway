@@ -86,6 +86,7 @@ class DaliGateway:
         name: str | None = None,
         channel_total: Sequence[int] | None = None,
         is_tls: bool = False,
+        loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
         # Gateway information
         self._gw_sn = gw_sn
@@ -101,8 +102,9 @@ class DaliGateway:
         self.software_version: str = ""
         self.firmware_version: str = ""
 
-        # Event loop for thread-safe callback dispatch (set during connect)
-        self._loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+        # Event loop for thread-safe callback dispatch
+        # Can be provided at __init__ or will be auto-detected in connect()
+        self._loop: asyncio.AbstractEventLoop | None = loop
 
         # Connection state machine
         self._connection_state = ConnectionState.DISCONNECTED
@@ -303,10 +305,23 @@ class DaliGateway:
         return self._connection_state
 
     def _dispatch_callback(self, callback: Callable[..., Any], *args: Any) -> None:
-        self._loop.call_soon_threadsafe(callback, *args)
+        """Dispatch a callback in a thread-safe manner.
+
+        If an event loop is configured, use call_soon_threadsafe to schedule
+        the callback on the event loop thread. Otherwise, call the callback
+        directly (for backward compatibility).
+        """
+        if self._loop is not None and self._loop.is_running():
+            self._loop.call_soon_threadsafe(callback, *args)
+        else:
+            callback(*args)
 
     def _set_event_threadsafe(self, event: asyncio.Event) -> None:
-        self._loop.call_soon_threadsafe(event.set)
+        """Set an asyncio.Event in a thread-safe manner."""
+        if self._loop is not None and self._loop.is_running():
+            self._loop.call_soon_threadsafe(event.set)
+        else:
+            event.set()
 
     def register_listener(
         self,
@@ -1094,14 +1109,15 @@ class DaliGateway:
             delay,
         )
 
-        try:
+        # Schedule reconnection on the event loop
+        if self._loop is not None and self._loop.is_running():
             self._reconnect_task = self._loop.call_later(
                 delay,
                 lambda: asyncio.ensure_future(self._reconnect(), loop=self._loop),
             )
-        except RuntimeError:
+        else:
             _LOGGER.warning(
-                "Gateway %s: Event loop not running, cannot schedule reconnection",
+                "Gateway %s: No event loop available for reconnection",
                 self._gw_sn,
             )
 
@@ -1172,9 +1188,10 @@ class DaliGateway:
             self._reconnect_task = None
             _LOGGER.debug("Gateway %s: Cancelled pending reconnection", self._gw_sn)
 
-    async def connect(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
-        if loop:
-            self._loop = loop
+    async def connect(self) -> None:
+        # Auto-detect event loop if not provided at __init__
+        if self._loop is None:
+            self._loop = asyncio.get_running_loop()
 
         self._connection_event.clear()
         self._connect_result = None
