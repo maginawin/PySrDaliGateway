@@ -86,7 +86,6 @@ class DaliGateway:
         name: str | None = None,
         channel_total: Sequence[int] | None = None,
         is_tls: bool = False,
-        loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
         # Gateway information
         self._gw_sn = gw_sn
@@ -102,8 +101,8 @@ class DaliGateway:
         self.software_version: str = ""
         self.firmware_version: str = ""
 
-        # Event loop for thread-safe callback dispatch
-        self._loop = loop
+        # Event loop for thread-safe callback dispatch (set during connect)
+        self._loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
 
         # Connection state machine
         self._connection_state = ConnectionState.DISCONNECTED
@@ -304,23 +303,10 @@ class DaliGateway:
         return self._connection_state
 
     def _dispatch_callback(self, callback: Callable[..., Any], *args: Any) -> None:
-        """Dispatch a callback in a thread-safe manner.
-
-        If an event loop is configured and running, use call_soon_threadsafe
-        to schedule the callback on the event loop thread. Otherwise, call
-        the callback directly (for backward compatibility).
-        """
-        if self._loop is not None and self._loop.is_running():
-            self._loop.call_soon_threadsafe(callback, *args)
-        else:
-            callback(*args)
+        self._loop.call_soon_threadsafe(callback, *args)
 
     def _set_event_threadsafe(self, event: asyncio.Event) -> None:
-        """Set an asyncio.Event in a thread-safe manner."""
-        if self._loop is not None and self._loop.is_running():
-            self._loop.call_soon_threadsafe(event.set)
-        else:
-            event.set()
+        self._loop.call_soon_threadsafe(event.set)
 
     def register_listener(
         self,
@@ -724,7 +710,7 @@ class DaliGateway:
 
         search_status = payload_json.get("searchStatus")
         if search_status in {0, 1}:
-            self._devices_received.set()
+            self._set_event_threadsafe(self._devices_received)
 
     def _process_get_scene_response(self, payload_json: Dict[str, Any]) -> None:
         self._scenes_result.clear()
@@ -754,7 +740,7 @@ class DaliGateway:
                     )
                 )
 
-        self._scenes_received.set()
+        self._set_event_threadsafe(self._scenes_received)
 
     def _process_get_group_response(self, payload_json: Dict[str, Any]) -> None:
         self._groups_result.clear()
@@ -784,7 +770,7 @@ class DaliGateway:
                     )
                 )
 
-        self._groups_received.set()
+        self._set_event_threadsafe(self._groups_received)
 
     def _process_read_group_response(self, payload: Dict[str, Any]) -> None:
         group_id = payload.get("groupId", 0)
@@ -829,7 +815,7 @@ class DaliGateway:
 
         # Signal completion for this specific group
         if group_key in self._read_group_events:
-            self._read_group_events[group_key].set()
+            self._set_event_threadsafe(self._read_group_events[group_key])
 
     def _process_read_scene_response(self, payload: Dict[str, Any]) -> None:
         scene_id = payload.get("sceneId", 0)
@@ -847,7 +833,7 @@ class DaliGateway:
             )
             # Mark as received even with error to unblock waiting coroutine
             if scene_key in self._read_scene_events:
-                self._read_scene_events[scene_key].set()
+                self._set_event_threadsafe(self._read_scene_events[scene_key])
             return
 
         raw_devices: List[Dict[str, Any]] = data.get("device", [])
@@ -891,7 +877,7 @@ class DaliGateway:
 
         # Signal completion for this specific scene
         if scene_key in self._read_scene_events:
-            self._read_scene_events[scene_key].set()
+            self._set_event_threadsafe(self._read_scene_events[scene_key])
 
     def _process_set_sensor_on_off_response(self, payload: Dict[str, Any]) -> None:
         _LOGGER.debug(
@@ -1108,15 +1094,14 @@ class DaliGateway:
             delay,
         )
 
-        # Schedule reconnection on the event loop
-        if self._loop is not None and self._loop.is_running():
+        try:
             self._reconnect_task = self._loop.call_later(
                 delay,
                 lambda: asyncio.ensure_future(self._reconnect(), loop=self._loop),
             )
-        else:
+        except RuntimeError:
             _LOGGER.warning(
-                "Gateway %s: No event loop available for reconnection",
+                "Gateway %s: Event loop not running, cannot schedule reconnection",
                 self._gw_sn,
             )
 
@@ -1187,7 +1172,10 @@ class DaliGateway:
             self._reconnect_task = None
             _LOGGER.debug("Gateway %s: Cancelled pending reconnection", self._gw_sn)
 
-    async def connect(self) -> None:
+    async def connect(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
+        if loop:
+            self._loop = loop
+
         self._connection_event.clear()
         self._connect_result = None
         self._shutdown_requested = False  # Reset shutdown flag for new connection
