@@ -56,6 +56,9 @@ from .udp_client import send_identify_gateway
 
 _LOGGER = logging.getLogger(__name__)
 
+# Connection parameters
+_CONNECTION_TIMEOUT = 30.0  # seconds - gateway broker may respond slowly
+
 # Reconnection parameters
 _RECONNECT_INITIAL_DELAY = 1.0  # seconds
 _RECONNECT_MAX_DELAY = 60.0  # seconds
@@ -1213,7 +1216,9 @@ class DaliGateway:
             )
             self._mqtt_client.connect(self._gw_ip, self._port)
             self._mqtt_client.loop_start()
-            await asyncio.wait_for(self._connection_event.wait(), timeout=10)
+            await asyncio.wait_for(
+                self._connection_event.wait(), timeout=_CONNECTION_TIMEOUT
+            )
 
             if self._connect_result is not None and self._connect_result == 0:
                 _LOGGER.info(
@@ -1227,11 +1232,18 @@ class DaliGateway:
                 return
 
         except asyncio.TimeoutError as err:
+            # Critical: Stop the paho loop to prevent leaked background threads
+            # that could cause duplicate message processing if a new gateway
+            # instance is created later with the same client_id.
+            self._mqtt_client.loop_stop()
+            self._connection_state = ConnectionState.DISCONNECTED
+
             _LOGGER.error(
-                "Connection timeout to gateway %s at %s:%s after 10 seconds - check network connectivity",
+                "Connection timeout to gateway %s at %s:%s after %.0f seconds - check network connectivity",
                 self._gw_sn,
                 self._gw_ip,
                 self._port,
+                _CONNECTION_TIMEOUT,
             )
             raise DaliGatewayError(
                 f"Connection timeout to gateway {self._gw_sn}", self._gw_sn
@@ -1247,6 +1259,10 @@ class DaliGateway:
             raise DaliGatewayError(
                 f"Network error connecting to gateway {self._gw_sn}: {err}", self._gw_sn
             ) from err
+
+        # Connection failed - clean up the paho loop before raising
+        self._mqtt_client.loop_stop()
+        self._connection_state = ConnectionState.DISCONNECTED
 
         if self._connect_result is not None and self._connect_result in (4, 5):
             _LOGGER.error(
