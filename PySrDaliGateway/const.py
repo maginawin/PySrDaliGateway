@@ -115,4 +115,6 @@ PANEL_CONFIGS: dict[str, PanelConfig] = {
     },
 }
 
+INBOUND_CALLBACK_BATCH_WINDOW_MS = 100
+
 CA_CERT_PATH = resources.files("PySrDaliGateway") / "certs" / "ca.crt"
