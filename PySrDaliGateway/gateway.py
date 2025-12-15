@@ -120,17 +120,20 @@ class DaliGateway:
         self._pub_topic = f"/{self._gw_sn}/server/publish/"
 
         # MQTT client - handle compatibility between paho-mqtt versions
+        # Use timestamp in client_id to ensure uniqueness across reconnections.
+        # MQTT brokers may reject connections from clients with duplicate IDs.
+        client_id = f"ha_dali_center_{self._gw_sn}_{int(time.time() * 1000)}"
         if HAS_CALLBACK_API_VERSION:
             # paho-mqtt >= 2.0.0
             self._mqtt_client = paho_mqtt.Client(
                 CallbackAPIVersion.VERSION2,  # pyright: ignore[reportPossiblyUnboundVariable]
-                client_id=f"ha_dali_center_{self._gw_sn}",
+                client_id=client_id,
                 protocol=paho_mqtt.MQTTv311,
             )
         else:
             # paho-mqtt < 2.0.0
             self._mqtt_client = paho_mqtt.Client(
-                client_id=f"ha_dali_center_{self._gw_sn}",
+                client_id=client_id,
                 protocol=paho_mqtt.MQTTv311,
             )
 
@@ -1102,6 +1105,11 @@ class DaliGateway:
             )
             return
 
+        # Cancel any existing reconnect task to prevent duplicate reconnections
+        if self._reconnect_task is not None:
+            self._reconnect_task.cancel()
+            self._reconnect_task = None
+
         # Add jitter to prevent thundering herd
         jitter = self._reconnect_delay * _RECONNECT_JITTER * (2 * random.random() - 1)
         delay = self._reconnect_delay + jitter
@@ -1135,6 +1143,13 @@ class DaliGateway:
         if self._shutdown_requested:
             _LOGGER.debug(
                 "Gateway %s: Shutdown requested, aborting reconnection", self._gw_sn
+            )
+            return
+
+        # Skip if already connected to prevent duplicate connections
+        if self._connection_state == ConnectionState.CONNECTED:
+            _LOGGER.debug(
+                "Gateway %s: Already connected, skipping reconnection", self._gw_sn
             )
             return
 
