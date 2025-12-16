@@ -3,7 +3,15 @@
 import colorsys
 from typing import Any, Dict, List
 
-from .const import BUTTON_EVENTS, DEVICE_TYPE_MAP
+from .const import (
+    BUTTON_EVENTS,
+    DEVICE_TYPE_MAP,
+    DPID_BRIGHTNESS,
+    DPID_COLOR_TEMP,
+    DPID_HSV_COLOR,
+    DPID_POWER,
+    DPID_WHITE_LEVEL,
+)
 from .types import (
     IlluminanceStatus,
     LightStatus,
@@ -74,28 +82,28 @@ def parse_light_status(property_list: List[Dict[str, Any]]) -> LightStatus:
         "white_level": None,
     }
 
-    if 20 in props:
-        light_status["is_on"] = bool(props[20])
+    if DPID_POWER in props:
+        light_status["is_on"] = bool(props[DPID_POWER])
 
-    if 21 in props:
-        white_level = int(props[21])
+    if DPID_WHITE_LEVEL in props:
+        white_level = int(props[DPID_WHITE_LEVEL])
         light_status["white_level"] = min(255, max(0, white_level))
         if light_status["rgbw_color"] is not None:
             r, g, b, _ = light_status["rgbw_color"]
             light_status["rgbw_color"] = (r, g, b, white_level)
 
-    if 22 in props:
-        brightness_value = float(props[22])
+    if DPID_BRIGHTNESS in props:
+        brightness_value = float(props[DPID_BRIGHTNESS])
         if brightness_value == 0 and light_status["brightness"] is None:
             light_status["brightness"] = 255
         else:
             light_status["brightness"] = int(brightness_value / 1000 * 255)
 
-    if 23 in props:
-        light_status["color_temp_kelvin"] = int(props[23])
+    if DPID_COLOR_TEMP in props:
+        light_status["color_temp_kelvin"] = int(props[DPID_COLOR_TEMP])
 
-    if 24 in props:
-        hsv_str = str(props[24])
+    if DPID_HSV_COLOR in props:
+        hsv_str = str(props[DPID_HSV_COLOR])
 
         h = int(hsv_str[0:4], 16)
         s = int(hsv_str[4:8], 16)

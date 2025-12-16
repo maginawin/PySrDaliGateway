@@ -21,7 +21,13 @@ except ImportError:
     # paho-mqtt < 2.0.0 doesn't have CallbackAPIVersion
     HAS_CALLBACK_API_VERSION = False  # pyright: ignore[reportConstantRedefinition]
 
-from .const import CA_CERT_PATH, DEVICE_MODEL_MAP, INBOUND_CALLBACK_BATCH_WINDOW_MS
+from .const import (
+    CA_CERT_PATH,
+    DEVICE_MODEL_MAP,
+    DPID_ENERGY,
+    INBOUND_CALLBACK_BATCH_WINDOW_MS,
+    MAX_CONCURRENT_READS,
+)
 from .device import Device
 from .exceptions import DaliGatewayError
 from .group import Group
@@ -92,7 +98,6 @@ class DaliGateway:
         is_tls: bool = False,
         loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
-        # Gateway information
         self._gw_sn = gw_sn
         self._gw_ip = gw_ip
         self._port = port
@@ -115,8 +120,8 @@ class DaliGateway:
         self._reconnect_task: asyncio.TimerHandle | None = None
         self._reconnect_delay = _RECONNECT_INITIAL_DELAY
         self._shutdown_requested = False
+        self._connection_lock: asyncio.Lock | None = None  # Initialized in connect()
 
-        # MQTT topics
         self._sub_topic = f"/{self._gw_sn}/client/reciver/"
         self._pub_topic = f"/{self._gw_sn}/server/publish/"
 
@@ -140,16 +145,13 @@ class DaliGateway:
 
         self._mqtt_client.enable_logger()
 
-        # Connection result
         self._connect_result: int | None = None
         self._connection_event = asyncio.Event()
 
-        # Set up client callbacks
         self._mqtt_client.on_connect = self._on_connect
         self._mqtt_client.on_disconnect = self._on_disconnect
         self._mqtt_client.on_message = self._on_message
 
-        # Scene/Group/Device Received
         self._scenes_received = asyncio.Event()
         self._groups_received = asyncio.Event()
         self._devices_received = asyncio.Event()
@@ -162,7 +164,6 @@ class DaliGateway:
         self._read_scene_events: Dict[Tuple[int, int], asyncio.Event] = {}
         self._read_scene_results: Dict[Tuple[int, int], Dict[str, Any]] = {}
 
-        # Device-specific listeners: {event_type: {dev_id: [listeners]}}
         self._device_listeners: Dict[
             CallbackEventType, Dict[str, List[Callable[..., None]]]
         ] = {
@@ -245,7 +246,11 @@ class DaliGateway:
         self._pending_requests[cmd][device_key] = data
 
         if self._batch_timer.get(cmd) is None:
-            self._batch_timer[cmd] = asyncio.get_event_loop().call_later(
+            if self._loop is None or not self._loop.is_running():
+                # Fallback: flush immediately if no event loop available
+                self._flush_batch(cmd)
+                return
+            self._batch_timer[cmd] = self._loop.call_later(
                 self._window_ms / 1000.0, self._flush_batch, cmd
             )
 
@@ -276,6 +281,21 @@ class DaliGateway:
             f"DaliGateway(gw_sn={self._gw_sn}, gw_ip={self._gw_ip}, "
             f"port={self._port}, name={self._name})"
         )
+
+    def _publish_command(self, cmd: str, **kwargs: Any) -> None:
+        """Publish a command to the MQTT broker.
+
+        Args:
+            cmd: The command name (e.g., 'writeScene', 'getSensorOnOff')
+            **kwargs: Additional fields to include in the command payload
+        """
+        payload: Dict[str, Any] = {
+            "cmd": cmd,
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+            **kwargs,
+        }
+        self._mqtt_client.publish(self._pub_topic, json.dumps(payload))
 
     @property
     def gw_sn(self) -> str:
@@ -695,7 +715,7 @@ class DaliGateway:
 
         property_list = data.get("property", [])
         for prop in property_list:
-            if prop.get("dpid") == 30:
+            if prop.get("dpid") == DPID_ENERGY:
                 try:
                     energy_value = float(prop.get("value", "0"))
 
@@ -1121,7 +1141,7 @@ class DaliGateway:
 
     async def _setup_ssl(self) -> None:
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._setup_ssl_sync)
         except Exception as e:
             _LOGGER.error("Failed to configure SSL/TLS: %s", str(e))
@@ -1192,20 +1212,32 @@ class DaliGateway:
             )
             return
 
-        # Skip if already connected to prevent duplicate connections
-        if self._connection_state == ConnectionState.CONNECTED:
-            _LOGGER.debug(
-                "Gateway %s: Already connected, skipping reconnection", self._gw_sn
-            )
-            return
+        # Use connection lock for state check if available
+        if self._connection_lock is not None:
+            async with self._connection_lock:
+                # Skip if already connected to prevent duplicate connections
+                if self._connection_state == ConnectionState.CONNECTED:
+                    _LOGGER.debug(
+                        "Gateway %s: Already connected, skipping reconnection",
+                        self._gw_sn,
+                    )
+                    return
+                # Reset connection state while holding lock
+                self._connection_event.clear()
+                self._connect_result = None
+        else:
+            # Fallback without lock
+            if self._connection_state == ConnectionState.CONNECTED:
+                _LOGGER.debug(
+                    "Gateway %s: Already connected, skipping reconnection", self._gw_sn
+                )
+                return
+            self._connection_event.clear()
+            self._connect_result = None
 
         _LOGGER.info("Gateway %s: Attempting reconnection...", self._gw_sn)
 
         try:
-            # Reset connection state
-            self._connection_event.clear()
-            self._connect_result = None
-
             # Attempt reconnection
             self._mqtt_client.reconnect()
 
@@ -1257,12 +1289,27 @@ class DaliGateway:
         if self._loop is None:
             self._loop = asyncio.get_running_loop()
 
-        self._connection_event.clear()
-        self._connect_result = None
-        self._shutdown_requested = False  # Reset shutdown flag for new connection
-        self._reconnect_delay = _RECONNECT_INITIAL_DELAY  # Reset backoff
-        self._connection_state = ConnectionState.CONNECTING
-        self._mqtt_client.username_pw_set(self._username, self._passwd)
+        # Initialize connection lock if not already done
+        if self._connection_lock is None:
+            self._connection_lock = asyncio.Lock()
+
+        # Acquire lock for state transition check
+        async with self._connection_lock:
+            if self._connection_state == ConnectionState.CONNECTED:
+                _LOGGER.debug(
+                    "Gateway %s: Already connected, skipping connect", self._gw_sn
+                )
+                return
+            if self._connection_state == ConnectionState.CONNECTING:
+                _LOGGER.debug("Gateway %s: Connection already in progress", self._gw_sn)
+                return
+
+            self._connection_event.clear()
+            self._connect_result = None
+            self._shutdown_requested = False  # Reset shutdown flag for new connection
+            self._reconnect_delay = _RECONNECT_INITIAL_DELAY  # Reset backoff
+            self._connection_state = ConnectionState.CONNECTING
+            self._mqtt_client.username_pw_set(self._username, self._passwd)
 
         if self._is_tls:
             await self._setup_ssl()
@@ -1352,6 +1399,15 @@ class DaliGateway:
         # Stop any pending reconnection attempts first
         self.stop_reconnection()
 
+        # Use connection lock if available
+        if self._connection_lock is not None:
+            async with self._connection_lock:
+                await self._disconnect_impl()
+        else:
+            await self._disconnect_impl()
+
+    async def _disconnect_impl(self) -> None:
+        """Internal disconnect implementation."""
         try:
             self._mqtt_client.loop_stop()
             self._mqtt_client.disconnect()
@@ -1595,7 +1651,7 @@ class DaliGateway:
 
         # Phase 2: Read detailed group data with limited concurrency
         # Limit concurrent reads to avoid MQTT message storms
-        read_semaphore = asyncio.Semaphore(3)
+        read_semaphore = asyncio.Semaphore(MAX_CONCURRENT_READS)
 
         async def read_group_with_limit(group_id: int, channel: int) -> Dict[str, Any]:
             async with read_semaphore:
@@ -1699,7 +1755,7 @@ class DaliGateway:
 
         # Phase 2: Read detailed scene data with limited concurrency
         # Limit concurrent reads to avoid MQTT message storms
-        read_semaphore = asyncio.Semaphore(3)
+        read_semaphore = asyncio.Semaphore(MAX_CONCURRENT_READS)
 
         async def read_scene_with_limit(scene_id: int, channel: int) -> Dict[str, Any]:
             async with read_semaphore:
@@ -1821,44 +1877,28 @@ class DaliGateway:
         self._mqtt_client.publish(self._pub_topic, command_json)
 
     def command_write_scene(self, scene_id: int, channel: int) -> None:
-        command: Dict[str, Any] = {
-            "cmd": "writeScene",
-            "msgId": str(int(time.time())),
-            "gwSn": self._gw_sn,
-            "channel": channel,
-            "sceneId": scene_id,
-        }
-        command_json = json.dumps(command)
-        self._mqtt_client.publish(self._pub_topic, command_json)
+        self._publish_command("writeScene", channel=channel, sceneId=scene_id)
 
     def command_set_sensor_on_off(
         self, dev_type: str, channel: int, address: int, value: bool
     ) -> None:
-        command: Dict[str, Any] = {
-            "cmd": "setSensorOnOff",
-            "msgId": str(int(time.time())),
-            "gwSn": self._gw_sn,
-            "devType": dev_type,
-            "channel": channel,
-            "address": address,
-            "value": value,
-        }
-        command_json = json.dumps(command)
-        self._mqtt_client.publish(self._pub_topic, command_json)
+        self._publish_command(
+            "setSensorOnOff",
+            devType=dev_type,
+            channel=channel,
+            address=address,
+            value=value,
+        )
 
     def command_get_sensor_on_off(
         self, dev_type: str, channel: int, address: int
     ) -> None:
-        command: Dict[str, Any] = {
-            "cmd": "getSensorOnOff",
-            "msgId": str(int(time.time())),
-            "gwSn": self._gw_sn,
-            "devType": dev_type,
-            "channel": channel,
-            "address": address,
-        }
-        command_json = json.dumps(command)
-        self._mqtt_client.publish(self._pub_topic, command_json)
+        self._publish_command(
+            "getSensorOnOff",
+            devType=dev_type,
+            channel=channel,
+            address=address,
+        )
 
     def command_set_sensor_argv(
         self, dev_type: str, channel: int, address: int, param: SensorParamType
@@ -1921,46 +1961,27 @@ class DaliGateway:
             channel: DALI channel number
             address: Device address
         """
-        command: Dict[str, Any] = {
-            "cmd": "getSensorArgv",
-            "msgId": str(int(time.time())),
-            "gwSn": self._gw_sn,
-            "devType": dev_type,
-            "channel": channel,
-            "address": address,
-        }
-        command_json = json.dumps(command)
-        _LOGGER.debug(
-            "Gateway %s: Sending getSensorArgv command: %s", self._gw_sn, command
+        self._publish_command(
+            "getSensorArgv",
+            devType=dev_type,
+            channel=channel,
+            address=address,
         )
-        self._mqtt_client.publish(self._pub_topic, command_json)
 
     def command_identify_dev(self, dev_type: str, channel: int, address: int) -> None:
-        command: Dict[str, Any] = {
-            "cmd": "identifyDev",
-            "msgId": str(int(time.time())),
-            "gwSn": self._gw_sn,
-            "data": {
-                "devType": dev_type,
-                "channel": channel,
-                "address": address,
-            },
-        }
-        command_json = json.dumps(command)
-        self._mqtt_client.publish(self._pub_topic, command_json)
+        self._publish_command(
+            "identifyDev",
+            data={"devType": dev_type, "channel": channel, "address": address},
+        )
 
     def command_get_dev_param(self, dev_type: str, channel: int, address: int) -> None:
-        command: Dict[str, Any] = {
-            "cmd": "getDevParam",
-            "msgId": str(int(time.time())),
-            "gwSn": self._gw_sn,
-            "devType": dev_type,
-            "channel": channel,
-            "address": address,
-            "fromBus": False,
-        }
-        command_json = json.dumps(command)
-        self._mqtt_client.publish(self._pub_topic, command_json)
+        self._publish_command(
+            "getDevParam",
+            devType=dev_type,
+            channel=channel,
+            address=address,
+            fromBus=False,
+        )
 
     def command_set_dev_param(
         self, dev_type: str, channel: int, address: int, param: DeviceParamType
@@ -2045,10 +2066,5 @@ class DaliGateway:
 
     def restart_gateway(self) -> None:
         """Restart the gateway."""
-        command: Dict[str, Any] = {
-            "cmd": "restartGateway",
-            "msgId": str(int(time.time())),
-        }
-        command_json = json.dumps(command)
         _LOGGER.debug("Gateway %s: Sending restart command", self._gw_sn)
-        self._mqtt_client.publish(self._pub_topic, command_json)
+        self._publish_command("restartGateway")
