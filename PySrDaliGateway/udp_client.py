@@ -49,7 +49,6 @@ class MessageCryptor:
         if gw_sn is not None:
             message_dict = {**message_dict, "snList": [gw_sn]}
 
-        _LOGGER.debug("Prepared discovery message: %s", message_dict)
         message_json = json.dumps(message_dict)
         return message_json.encode("utf-8")
 
@@ -74,7 +73,6 @@ class MessageCryptor:
             "gwSn": gw_sn,
         }
 
-        _LOGGER.debug("Prepared identify gateway message for %s", gw_sn)
         message_json = json.dumps(message_dict)
         return message_json.encode("utf-8")
 
@@ -130,10 +128,8 @@ class MulticastSender:
             try:
                 sock.bind(("0.0.0.0", port))
             except OSError:
-                _LOGGER.debug("Port %d unavailable, trying next port", port)
                 return False
             else:
-                _LOGGER.debug("Successfully bound listener socket to port %d", port)
                 return True
 
         for port in ports_to_try:
@@ -146,8 +142,6 @@ class MulticastSender:
     def _join_multicast_groups(
         self, sock: socket.socket, interfaces: List[Dict[str, Any]]
     ) -> None:
-        _LOGGER.debug("Joining multicast groups on %d interfaces", len(interfaces))
-
         for interface in interfaces:
             mreq = socket.inet_aton(self.MULTICAST_ADDR) + socket.inet_aton(
                 interface["address"]
@@ -156,11 +150,6 @@ class MulticastSender:
                 sock.setsockopt(socket.IPPROTO_IP, socket.IP_DROP_MEMBERSHIP, mreq)
 
             sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-            _LOGGER.debug(
-                "Joined multicast group on interface %s (%s)",
-                interface["name"],
-                interface["address"],
-            )
 
     async def _send_on_interface(
         self, interface: Dict[str, Any], message: bytes
@@ -206,11 +195,5 @@ async def send_identify_gateway(gw_sn: str) -> None:
     # Prepare and send identify message
     msg_id = str(int(time.time()))
     message = cryptor.prepare_identify_message(gw_sn, msg_id)
-
-    _LOGGER.debug(
-        "Sending identify command to gateway %s on %d interface(s)",
-        gw_sn,
-        len(interfaces),
-    )
 
     await sender.send_multicast_message(interfaces, message)

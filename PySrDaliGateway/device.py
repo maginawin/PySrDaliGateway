@@ -1,7 +1,6 @@
 """Dali Gateway Device"""
 
 import colorsys
-import logging
 from typing import Any, Callable, Dict, Iterable, List, Protocol, Tuple
 
 from .base import DaliObjectBase
@@ -20,8 +19,6 @@ from .types import (
     ListenerCallback,
     SensorParamType,
 )
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class SupportsDeviceCommands(Protocol):
@@ -195,53 +192,27 @@ class Device(DaliObjectBase):
                 )
 
         self._send_properties(properties)
-        _LOGGER.debug(
-            "Device %s (%s) turned on with properties: %s",
-            self.dev_id,
-            self.name,
-            properties,
-        )
 
     def turn_off(self) -> None:
         properties = [self._create_property(DPID_POWER, "bool", False)]
         self._send_properties(properties)
-        _LOGGER.debug("Device %s (%s) turned off", self.dev_id, self.name)
 
     def read_status(self) -> None:
         self._client.command_read_dev(self.dev_type, self.channel, self.address)
-        _LOGGER.debug("Requesting status for device %s (%s)", self.dev_id, self.name)
 
     def press_button(self, button_id: int, event_type: int = 1) -> None:
         properties = [self._create_property(button_id, "uint8", event_type)]
 
         self._send_properties(properties)
-        _LOGGER.debug(
-            "Button %d pressed on device %s (%s) with event type %d",
-            button_id,
-            self.dev_id,
-            self.name,
-            event_type,
-        )
 
     def set_sensor_enabled(self, enabled: bool) -> None:
         self._client.command_set_sensor_on_off(
             self.dev_type, self.channel, self.address, enabled
         )
-        _LOGGER.debug(
-            "Sensor %s (%s) enabled state set to %s",
-            self.dev_id,
-            self.name,
-            enabled,
-        )
 
     def get_sensor_enabled(self) -> None:
         self._client.command_get_sensor_on_off(
             self.dev_type, self.channel, self.address
-        )
-        _LOGGER.debug(
-            "Requesting sensor %s (%s) enabled state",
-            self.dev_id,
-            self.name,
         )
 
     def get_energy(self, year: int, month: int, day: int) -> None:
@@ -253,11 +224,6 @@ class Device(DaliObjectBase):
             month,
             day,
         )
-        _LOGGER.debug(
-            "Requesting energy data for device %s (%s)",
-            self.dev_id,
-            self.name,
-        )
 
     def identify(self) -> None:
         """Make the device's indicator light blink to identify it physically."""
@@ -265,11 +231,6 @@ class Device(DaliObjectBase):
             self.dev_type,
             self.channel,
             self.address,
-        )
-        _LOGGER.debug(
-            "Identifying device %s (%s)",
-            self.dev_id,
-            self.name,
         )
 
     def set_device_parameters(self, param: DeviceParamType) -> None:
@@ -283,12 +244,6 @@ class Device(DaliObjectBase):
         self._client.command_set_dev_param(
             self.dev_type, self.channel, self.address, param
         )
-        _LOGGER.debug(
-            "Setting device parameters for %s (%s): %s",
-            self.dev_id,
-            self.name,
-            param,
-        )
 
     def get_device_parameters(self) -> None:
         """Request device parameters from gateway.
@@ -296,11 +251,6 @@ class Device(DaliObjectBase):
         The response will be delivered via DEV_PARAM event callback.
         """
         self._client.command_get_dev_param(self.dev_type, self.channel, self.address)
-        _LOGGER.debug(
-            "Requesting device parameters for %s (%s)",
-            self.dev_id,
-            self.name,
-        )
 
     def set_sensor_parameters(self, param: SensorParamType) -> None:
         """Set sensor parameters (occupancy time, sensitivity, coverage, etc.).
@@ -315,12 +265,6 @@ class Device(DaliObjectBase):
         self._client.command_set_sensor_argv(
             self.dev_type, self.channel, self.address, param
         )
-        _LOGGER.debug(
-            "Setting sensor parameters for %s (%s): %s",
-            self.dev_id,
-            self.name,
-            param,
-        )
 
     def get_sensor_parameters(self) -> None:
         """Request sensor parameters from gateway.
@@ -330,11 +274,6 @@ class Device(DaliObjectBase):
         Note: This method is only applicable to motion/occupancy sensor devices.
         """
         self._client.command_get_sensor_argv(self.dev_type, self.channel, self.address)
-        _LOGGER.debug(
-            "Requesting sensor parameters for %s (%s)",
-            self.dev_id,
-            self.name,
-        )
 
     def register_listener(
         self,
