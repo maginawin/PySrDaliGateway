@@ -6,6 +6,15 @@ from .types import PanelConfig
 
 DOMAIN = "dali_center"
 
+# DALI Protocol Data Point IDs (DPID)
+# These constants represent the standard DALI protocol property identifiers
+DPID_POWER = 20  # Power state (on/off)
+DPID_WHITE_LEVEL = 21  # White level for RGBW devices (0-255)
+DPID_BRIGHTNESS = 22  # Brightness level (0-1000, maps to 0-100%)
+DPID_COLOR_TEMP = 23  # Color temperature in Kelvin
+DPID_HSV_COLOR = 24  # HSV color as hex string
+DPID_ENERGY = 30  # Energy consumption value
+
 DEVICE_MODEL_MAP = {
     "0101": "DALI DT6 Dimmable Driver",
     "0102": "DALI DT8 Tc Dimmable Driver",
@@ -116,5 +125,8 @@ PANEL_CONFIGS: dict[str, PanelConfig] = {
 }
 
 INBOUND_CALLBACK_BATCH_WINDOW_MS = 100
+
+# Concurrency limits for MQTT operations
+MAX_CONCURRENT_READS = 3  # Limit parallel read operations to avoid MQTT message storms
 
 CA_CERT_PATH = resources.files("PySrDaliGateway") / "certs" / "ca.crt"
