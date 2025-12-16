@@ -143,8 +143,6 @@ class DaliGateway:
                 protocol=paho_mqtt.MQTTv311,
             )
 
-        self._mqtt_client.enable_logger()
-
         self._connect_result: int | None = None
         self._connection_event = asyncio.Event()
 
@@ -447,11 +445,6 @@ class DaliGateway:
             self._pending_callbacks = {}
             self._batch_scheduled = False
 
-        if pending:
-            _LOGGER.debug(
-                "Gateway %s: Flushing %d batched callback(s)", self._gw_sn, len(pending)
-            )
-
         for listener, data in pending.values():
             listener(data)
 
@@ -532,7 +525,6 @@ class DaliGateway:
             else:
                 self._connection_state = ConnectionState.DISCONNECTED
         else:
-            _LOGGER.debug("Gateway %s: MQTT disconnection completed", self._gw_sn)
             self._connection_state = ConnectionState.DISCONNECTED
 
         # Notify gateway-level listeners (thread-safe via _notify_listeners)
@@ -683,17 +675,8 @@ class DaliGateway:
             )
 
     def _process_write_response(self, payload: Dict[str, Any]) -> None:
-        msg_id = payload.get("msgId")
-        ack = payload.get("ack", False)
-
-        _LOGGER.debug(
-            "Gateway %s: Received write device response, "
-            "msgId: %s, ack: %s, payload: %s",
-            self._gw_sn,
-            msg_id,
-            ack,
-            payload,
-        )
+        # Response is already logged by _on_message
+        pass
 
     def _process_energy_report(self, payload: Dict[str, Any]) -> None:
         data = payload.get("data")
@@ -967,11 +950,8 @@ class DaliGateway:
             self._set_event_threadsafe(self._read_scene_events[scene_key])
 
     def _process_set_sensor_on_off_response(self, payload: Dict[str, Any]) -> None:
-        _LOGGER.debug(
-            "Gateway %s: Received setSensorOnOffRes response, payload: %s",
-            self._gw_sn,
-            payload,
-        )
+        # Response is already logged by _on_message
+        pass
 
     def _process_get_sensor_on_off_response(self, payload: Dict[str, Any]) -> None:
         dev_id = gen_device_unique_id(
@@ -987,20 +967,7 @@ class DaliGateway:
 
     def _process_set_sensor_argv_response(self, payload: Dict[str, Any]) -> None:
         """Process setSensorArgv response."""
-        dev_type = payload.get("devType", "")
-        channel = payload.get("channel", 0)
-        address = payload.get("address", 0)
-        ack = payload.get("ack", False)
-
-        _LOGGER.debug(
-            "Gateway %s: Received setSensorArgvRes response, "
-            "devType: %s, channel: %s, address: %s, ack: %s",
-            self._gw_sn,
-            dev_type,
-            channel,
-            address,
-            ack,
-        )
+        # Response is already logged by _on_message
 
     def _process_get_sensor_argv_response(self, payload: Dict[str, Any]) -> None:
         """Process getSensorArgv response and emit parameters to listeners."""
@@ -1008,16 +975,6 @@ class DaliGateway:
         channel = payload.get("channel", 0)
         address = payload.get("address", 0)
         data = payload.get("data", {})
-
-        _LOGGER.debug(
-            "Gateway %s: Received getSensorArgvRes response, "
-            "devType: %s, channel: %s, address: %s, data: %s",
-            self._gw_sn,
-            dev_type,
-            channel,
-            address,
-            data,
-        )
 
         if not data:
             return
@@ -1048,20 +1005,7 @@ class DaliGateway:
 
     def _process_set_dev_param_response(self, payload: Dict[str, Any]) -> None:
         """Process setDevParam response."""
-        dev_type = payload.get("devType", "")
-        channel = payload.get("channel", 0)
-        address = payload.get("address", 0)
-        ack = payload.get("ack", False)
-
-        _LOGGER.debug(
-            "Gateway %s: Received setDevParamRes response, "
-            "devType: %s, channel: %s, address: %s, ack: %s",
-            self._gw_sn,
-            dev_type,
-            channel,
-            address,
-            ack,
-        )
+        # Response is already logged by _on_message
 
     def _process_get_dev_param_response(self, payload: Dict[str, Any]) -> None:
         """Process getDevParam response and emit parameters to listeners."""
@@ -1069,16 +1013,6 @@ class DaliGateway:
         channel = payload.get("channel", 0)
         address = payload.get("address", 0)
         paramer = payload.get("paramer", {})
-
-        _LOGGER.debug(
-            "Gateway %s: Received getDevParamRes response, "
-            "devType: %s, channel: %s, address: %s, paramer: %s",
-            self._gw_sn,
-            dev_type,
-            channel,
-            address,
-            paramer,
-        )
 
         if not paramer:
             return
@@ -1129,15 +1063,7 @@ class DaliGateway:
 
     def _process_identify_dev_response(self, payload: Dict[str, Any]) -> None:
         """Process identifyDev response."""
-        msg_id = payload.get("msgId")
-        ack = payload.get("ack", False)
-
-        _LOGGER.debug(
-            "Gateway %s: Received identify device response, msgId: %s, ack: %s",
-            self._gw_sn,
-            msg_id,
-            ack,
-        )
+        # Response is already logged by _on_message
 
     async def _setup_ssl(self) -> None:
         try:

@@ -21,7 +21,6 @@ class NetworkManager:
 
     def get_valid_interfaces(self) -> List[Dict[str, Any]]:
         interfaces: List[Dict[str, Any]] = []
-        _LOGGER.debug("Scanning network interfaces for discovery")
         for interface_name, addrs in psutil.net_if_addrs().items():
             for addr in addrs:
                 if addr.family == socket.AF_INET:
@@ -29,17 +28,6 @@ class NetworkManager:
                     if self.is_valid_ip(ip):
                         interface_info = self.create_interface_info(interface_name, ip)
                         interfaces.append(interface_info)
-                        _LOGGER.debug(
-                            "Found valid interface: %s (%s)", interface_name, ip
-                        )
-                    else:
-                        _LOGGER.debug(
-                            "Skipping invalid IP: %s on %s", ip, interface_name
-                        )
-
-        _LOGGER.debug(
-            "Network scan complete. %d valid interfaces found", len(interfaces)
-        )
         return interfaces
 
     def is_valid_ip(self, ip: str) -> bool:
@@ -70,11 +58,6 @@ class DaliGatewayDiscovery:
         )
 
         interfaces = self.network_manager.get_valid_interfaces()
-        _LOGGER.debug(
-            "Found %d valid network interfaces: %s",
-            len(interfaces),
-            [iface["name"] for iface in interfaces],
-        )
 
         if not interfaces:
             _LOGGER.error(
@@ -134,7 +117,6 @@ class DaliGatewayDiscovery:
         first_gateway_found: asyncio.Event,
         start_time: float,
     ) -> None:
-        send_count = 0
         while not first_gateway_found.is_set():
             if asyncio.get_event_loop().time() - start_time >= self.DISCOVERY_TIMEOUT:
                 _LOGGER.info(
@@ -143,20 +125,11 @@ class DaliGatewayDiscovery:
                 )
                 break
 
-            send_count += 1
-            _LOGGER.debug(
-                "Sending discovery message #%d to %d interfaces",
-                send_count,
-                len(interfaces),
-            )
             await self.sender.send_multicast_message(interfaces, message)
 
             try:
                 await asyncio.wait_for(
                     first_gateway_found.wait(), timeout=self.SEND_INTERVAL
-                )
-                _LOGGER.debug(
-                    "Gateway found, stopping sender loop after %d sends", send_count
                 )
                 break
             except asyncio.TimeoutError:
@@ -171,18 +144,14 @@ class DaliGatewayDiscovery:
         seen_sns: Set[str],
         gw_sn: str | None = None,
     ) -> None:
-        _LOGGER.debug("Starting receiver loop, listening on socket")
-
         while not first_gateway_found.is_set():
             if asyncio.get_event_loop().time() - start_time >= self.DISCOVERY_TIMEOUT:
-                _LOGGER.debug("Receiver loop timeout reached")
                 break
 
             addr = None
             try:
                 await asyncio.sleep(0.1)
                 data, addr = sock.recvfrom(1024)
-                _LOGGER.debug("Received response from %s, processing data", addr)
 
                 response_json = json.loads(data.decode("utf-8"))
                 raw_data = response_json.get("data")
@@ -200,11 +169,6 @@ class DaliGatewayDiscovery:
                         seen_sns.add(gateway.gw_sn)
                         first_gateway_found.set()
                         break
-                    _LOGGER.warning("Failed to process gateway data from %s", addr)
-                elif raw_data and raw_data.get("gwSn") in seen_sns:
-                    _LOGGER.debug(
-                        "Ignoring duplicate gateway response: %s", raw_data.get("gwSn")
-                    )
 
             except json.JSONDecodeError as exc:
                 _LOGGER.warning(
@@ -231,17 +195,11 @@ class DaliGatewayDiscovery:
             _LOGGER.warning("Gateway data missing required 'gwSn' field")
             return None
 
-        _LOGGER.debug("Processing gateway data for: %s", gw_sn)
-
         encrypted_user = raw_data.get("username", "")
         encrypted_pass = raw_data.get("passwd", "")
 
         # Skip gateway with empty credentials if no specific gateway was requested
         if not encrypted_user and not encrypted_pass and requested_gw_sn is None:
-            _LOGGER.debug(
-                "Skipping gateway %s with empty credentials (no specific gateway requested)",
-                gw_sn,
-            )
             return None
 
         try:
@@ -267,7 +225,7 @@ class DaliGatewayDiscovery:
             if isinstance(ch, (int, str)) and str(ch).isdigit()
         ]
 
-        gateway = DaliGateway(
+        return DaliGateway(
             gw_sn=gw_sn,
             gw_ip=raw_data.get("gwIp"),
             port=int(raw_data.get("port", 0)),
@@ -277,6 +235,3 @@ class DaliGatewayDiscovery:
             channel_total=channel_total,
             is_tls=bool(raw_data.get("isMqttTls")),
         )
-
-        _LOGGER.debug("Successfully processed gateway: %s", gateway_name)
-        return gateway

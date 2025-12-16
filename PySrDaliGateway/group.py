@@ -1,14 +1,11 @@
 """Dali Gateway Group"""
 
 import colorsys
-import logging
 from typing import Any, Callable, Dict, List, Protocol, Tuple
 
 from .base import DaliObjectBase
 from .helper import gen_group_unique_id
 from .types import CallbackEventType, GroupDeviceType, ListenerCallback
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class SupportsGroupCommands(Protocol):
@@ -98,17 +95,10 @@ class Group(DaliObjectBase):
                 properties.append(self._create_property(21, "uint8", int(w)))
 
         self._send_properties(properties)
-        _LOGGER.debug(
-            "Group %s (%s) turned on with properties: %s",
-            self.group_id,
-            self.name,
-            properties,
-        )
 
     def turn_off(self) -> None:
         properties: List[Dict[str, Any]] = [self._create_property(20, "bool", False)]
         self._send_properties(properties)
-        _LOGGER.debug("Group %s (%s) turned off", self.group_id, self.name)
 
     def register_listener(
         self,
