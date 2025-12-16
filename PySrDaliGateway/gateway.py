@@ -319,18 +319,6 @@ class DaliGateway:
         """Return the current connection state."""
         return self._connection_state
 
-    def _dispatch_callback(self, callback: Callable[..., Any], *args: Any) -> None:
-        """Dispatch a callback in a thread-safe manner.
-
-        If an event loop is configured, use call_soon_threadsafe to schedule
-        the callback on the event loop thread. Otherwise, call the callback
-        directly (for backward compatibility).
-        """
-        if self._loop is not None and self._loop.is_running():
-            self._loop.call_soon_threadsafe(callback, *args)
-        else:
-            callback(*args)
-
     def _set_event_threadsafe(self, event: asyncio.Event) -> None:
         """Set an asyncio.Event in a thread-safe manner."""
         if self._loop is not None and self._loop.is_running():
@@ -407,9 +395,12 @@ class DaliGateway:
                 if key in self._pending_callbacks:
                     _, existing_data = self._pending_callbacks[key]
                     if isinstance(existing_data, dict) and isinstance(data, dict):
+                        # Explicit cast for TypedDict compatibility
+                        existing_dict = cast("Dict[str, Any]", existing_data)
+                        new_dict = cast("Dict[str, Any]", data)
                         merged: Dict[str, Any] = {
-                            **existing_data,
-                            **{k: v for k, v in data.items() if v is not None},
+                            **existing_dict,
+                            **{k: v for k, v in new_dict.items() if v is not None},
                         }
                         self._pending_callbacks[key] = (listener, merged)
                     else:
@@ -435,6 +426,11 @@ class DaliGateway:
             pending = self._pending_callbacks
             self._pending_callbacks = {}
             self._batch_scheduled = False
+
+        if pending:
+            _LOGGER.debug(
+                "Gateway %s: Flushing %d batched callback(s)", self._gw_sn, len(pending)
+            )
 
         for listener, data in pending.values():
             listener(data)
@@ -472,11 +468,9 @@ class DaliGateway:
             # Notify all device-specific listeners that gateway is online
             for device_id in self._device_listeners[CallbackEventType.ONLINE_STATUS]:
                 if device_id != self._gw_sn:
-                    for listener in self._device_listeners[
-                        CallbackEventType.ONLINE_STATUS
-                    ][device_id]:
-                        # Use thread-safe dispatch
-                        self._dispatch_callback(listener, True)
+                    self._notify_listeners(
+                        CallbackEventType.ONLINE_STATUS, device_id, True
+                    )
         else:
             _LOGGER.error(
                 "Gateway %s: MQTT connection failed with code %s", self._gw_sn, rc
@@ -526,11 +520,9 @@ class DaliGateway:
         # Notify all device-specific listeners that gateway is offline
         for device_id in self._device_listeners[CallbackEventType.ONLINE_STATUS]:
             if device_id != self._gw_sn:
-                for listener in self._device_listeners[CallbackEventType.ONLINE_STATUS][
-                    device_id
-                ]:
-                    # Use thread-safe dispatch
-                    self._dispatch_callback(listener, False)
+                self._notify_listeners(
+                    CallbackEventType.ONLINE_STATUS, device_id, False
+                )
 
     def _on_message(
         self, client: paho_mqtt.Client, userdata: Any, msg: paho_mqtt.MQTTMessage
