@@ -2,42 +2,15 @@
 
 import asyncio
 import contextlib
-import ipaddress
 import json
 import logging
 import socket
 from typing import Any, Dict, List, Set
 
-import psutil
-
 from .gateway import DaliGateway
-from .udp_client import MessageCryptor, MulticastSender
+from .udp_client import MessageCryptor, MulticastSender, NetworkManager
 
 _LOGGER = logging.getLogger(__name__)
-
-
-class NetworkManager:
-    """Network interface manager"""
-
-    def get_valid_interfaces(self) -> List[Dict[str, Any]]:
-        interfaces: List[Dict[str, Any]] = []
-        for interface_name, addrs in psutil.net_if_addrs().items():
-            for addr in addrs:
-                if addr.family == socket.AF_INET:
-                    ip = addr.address
-                    if self.is_valid_ip(ip):
-                        interface_info = self.create_interface_info(interface_name, ip)
-                        interfaces.append(interface_info)
-        return interfaces
-
-    def is_valid_ip(self, ip: str) -> bool:
-        if not ip or ip.startswith("127."):
-            return False
-        ip_obj = ipaddress.IPv4Address(ip)
-        return not ip_obj.is_loopback and not ip_obj.is_link_local
-
-    def create_interface_info(self, name: str, ip: str) -> Dict[str, Any]:
-        return {"name": name, "address": ip, "network": f"{ip}/24"}
 
 
 class DaliGatewayDiscovery:

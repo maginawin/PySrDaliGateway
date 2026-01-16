@@ -132,9 +132,6 @@ class Device(DaliObjectBase):
         """Computed color mode based on device type."""
         return COLOR_MODE_MAP.get(self.dev_type, "brightness")
 
-    def _create_property(self, dpid: int, data_type: str, value: Any) -> Dict[str, Any]:
-        return {"dpid": dpid, "dataType": data_type, "value": value}
-
     def _send_properties(self, properties: List[Dict[str, Any]]) -> None:
         for prop in properties:
             self._client.command_write_dev(

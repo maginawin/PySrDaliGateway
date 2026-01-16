@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import ipaddress
 import json
 import logging
 import socket
@@ -13,6 +14,34 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import psutil
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class NetworkManager:
+    """Network interface manager for discovering valid interfaces."""
+
+    def get_valid_interfaces(self) -> List[Dict[str, Any]]:
+        """Get all valid network interfaces for multicast communication."""
+        interfaces: List[Dict[str, Any]] = []
+        for interface_name, addrs in psutil.net_if_addrs().items():
+            for addr in addrs:
+                if addr.family == socket.AF_INET:
+                    ip = addr.address
+                    if self._is_valid_ip(ip):
+                        interfaces.append(
+                            self._create_interface_info(interface_name, ip)
+                        )
+        return interfaces
+
+    def _is_valid_ip(self, ip: str) -> bool:
+        """Check if IP address is valid for multicast communication."""
+        if not ip or ip.startswith("127."):
+            return False
+        ip_obj = ipaddress.IPv4Address(ip)
+        return not ip_obj.is_loopback and not ip_obj.is_link_local
+
+    def _create_interface_info(self, name: str, ip: str) -> Dict[str, Any]:
+        """Create interface info dict."""
+        return {"name": name, "address": ip, "network": f"{ip}/24"}
 
 
 class MessageCryptor:
@@ -174,25 +203,15 @@ async def send_identify_gateway(gw_sn: str) -> None:
     This sends the identifyDev command via UDP multicast which will make
     the gateway's LED blink for physical identification.
     """
-    cryptor = MessageCryptor()
-    sender = MulticastSender()
-
-    # Get network interfaces
-    interfaces: List[Dict[str, Any]] = []
-    for interface_name, addrs in psutil.net_if_addrs().items():
-        for addr in addrs:
-            if addr.family == socket.AF_INET:
-                ip = addr.address
-                if ip and not ip.startswith("127."):
-                    interfaces.append(
-                        {"name": interface_name, "address": ip, "network": f"{ip}/24"}
-                    )
+    network_manager = NetworkManager()
+    interfaces = network_manager.get_valid_interfaces()
 
     if not interfaces:
         _LOGGER.warning("No valid network interfaces found for identify command")
         return
 
-    # Prepare and send identify message
+    cryptor = MessageCryptor()
+    sender = MulticastSender()
     msg_id = str(int(time.time()))
     message = cryptor.prepare_identify_message(gw_sn, msg_id)
 
