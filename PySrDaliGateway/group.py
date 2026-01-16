@@ -4,6 +4,13 @@ import colorsys
 from typing import Any, Callable, Dict, List, Protocol, Tuple
 
 from .base import DaliObjectBase
+from .const import (
+    DPID_BRIGHTNESS,
+    DPID_COLOR_TEMP,
+    DPID_HSV_COLOR,
+    DPID_POWER,
+    DPID_WHITE_LEVEL,
+)
 from .helper import gen_group_unique_id
 from .types import CallbackEventType, GroupDeviceType, ListenerCallback
 
@@ -57,9 +64,6 @@ class Group(DaliObjectBase):
     def __repr__(self) -> str:
         return f"Group(name={self.name}, unique_id={self.unique_id})"
 
-    def _create_property(self, dpid: int, data_type: str, value: Any) -> Dict[str, Any]:
-        return {"dpid": dpid, "dataType": data_type, "value": value}
-
     def _send_properties(self, properties: List[Dict[str, Any]]) -> None:
         for prop in properties:
             self._client.command_write_group(self.group_id, self.channel, [prop])
@@ -70,15 +74,21 @@ class Group(DaliObjectBase):
         color_temp_kelvin: int | None = None,
         rgbw_color: Tuple[float, float, float, float] | None = None,
     ) -> None:
-        properties: List[Dict[str, Any]] = [self._create_property(20, "bool", True)]
+        properties: List[Dict[str, Any]] = [
+            self._create_property(DPID_POWER, "bool", True)
+        ]
 
         if brightness:
             properties.append(
-                self._create_property(22, "uint16", brightness * 1000 / 255)
+                self._create_property(
+                    DPID_BRIGHTNESS, "uint16", brightness * 1000 / 255
+                )
             )
 
         if color_temp_kelvin:
-            properties.append(self._create_property(23, "uint16", color_temp_kelvin))
+            properties.append(
+                self._create_property(DPID_COLOR_TEMP, "uint16", color_temp_kelvin)
+            )
 
         if rgbw_color:
             r, g, b, w = rgbw_color
@@ -88,16 +98,22 @@ class Group(DaliObjectBase):
                 s_hex = f"{int(s * 1000):04x}"
                 v_hex = f"{int(v * 1000):04x}"
                 properties.append(
-                    self._create_property(24, "string", f"{h_hex}{s_hex}{v_hex}")
+                    self._create_property(
+                        DPID_HSV_COLOR, "string", f"{h_hex}{s_hex}{v_hex}"
+                    )
                 )
 
             if w > 0:
-                properties.append(self._create_property(21, "uint8", int(w)))
+                properties.append(
+                    self._create_property(DPID_WHITE_LEVEL, "uint8", int(w))
+                )
 
         self._send_properties(properties)
 
     def turn_off(self) -> None:
-        properties: List[Dict[str, Any]] = [self._create_property(20, "bool", False)]
+        properties: List[Dict[str, Any]] = [
+            self._create_property(DPID_POWER, "bool", False)
+        ]
         self._send_properties(properties)
 
     def register_listener(

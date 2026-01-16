@@ -24,9 +24,13 @@ except ImportError:
 from .const import (
     CA_CERT_PATH,
     DEVICE_MODEL_MAP,
+    DEVICE_PARAM_KEY_MAP,
+    DEVICE_PARAM_PROTOCOL_KEY_MAP,
     DPID_ENERGY,
     INBOUND_CALLBACK_BATCH_WINDOW_MS,
     MAX_CONCURRENT_READS,
+    SENSOR_PARAM_KEY_MAP,
+    SENSOR_PARAM_PROTOCOL_KEY_MAP,
 )
 from .device import Device
 from .exceptions import DaliGatewayError
@@ -193,33 +197,13 @@ class DaliGateway:
         return f"{dev_type}_{channel}_{address}"
 
     def _build_paramer(self, param: DeviceParamType) -> Dict[str, Any]:
-        param_mapping = {
-            "address": "address",
-            "fade_time": "fadeTime",
-            "fade_rate": "fadeRate",
-            "power_status": "powerStatus",
-            "system_failure_status": "systemFailureStatus",
-            "max_brightness": "maxBrightness",
-            "min_brightness": "minBrightness",
-            "standby_power": "standbyPower",
-            "max_power": "maxPower",
-            "cct_cool": "cctCool",
-            "cct_warm": "cctWarm",
-            "phy_cct_cool": "phyCctCool",
-            "phy_cct_warm": "phyCctWarm",
-            "step_cct": "stepCCT",
-            "temp_thresholds": "tempThresholds",
-            "runtime_thresholds": "runtimeThresholds",
-            "waring_runtime_max": "waringRuntimeMax",
-            "waring_temperature_max": "waringTemperatureMax",
-        }
-
+        """Convert DeviceParamType to protocol format using snake_case to camelCase mapping."""
         param_dict = dict(param)
-        paramer: Dict[str, Any] = {}
-        for python_key, protocol_key in param_mapping.items():
-            if python_key in param_dict:
-                paramer[protocol_key] = param_dict[python_key]
-        return paramer
+        return {
+            DEVICE_PARAM_KEY_MAP[python_key]: param_dict[python_key]
+            for python_key in param_dict
+            if python_key in DEVICE_PARAM_KEY_MAP
+        }
 
     def add_request(
         self, cmd: str, dev_type: str, channel: int, address: int, data: Dict[str, Any]
@@ -558,9 +542,9 @@ class DaliGateway:
             command_handlers: Dict[str, Callable[[Dict[str, Any]], None]] = {
                 "devStatus": self._process_device_status,
                 "readDevRes": self._process_device_status,
-                "writeDevRes": self._process_write_response,
-                "writeGroupRes": self._process_write_response,
-                "writeSceneRes": self._process_write_response,
+                "writeDevRes": self._noop_handler,
+                "writeGroupRes": self._noop_handler,
+                "writeSceneRes": self._noop_handler,
                 "onlineStatus": self._process_online_status,
                 "reportEnergy": self._process_energy_report,
                 "searchDevRes": self._process_search_device_response,
@@ -571,11 +555,11 @@ class DaliGateway:
                 "readSceneRes": self._process_read_scene_response,
                 "restartGatewayRes": self._process_restart_gateway_response,
                 "getEnergyRes": self._process_get_energy_response,
-                "setSensorOnOffRes": self._process_set_sensor_on_off_response,
+                "setSensorOnOffRes": self._noop_handler,
                 "getSensorOnOffRes": self._process_get_sensor_on_off_response,
-                "setSensorArgvRes": self._process_set_sensor_argv_response,
+                "setSensorArgvRes": self._noop_handler,
                 "getSensorArgvRes": self._process_get_sensor_argv_response,
-                "setDevParamRes": self._process_set_dev_param_response,
+                "setDevParamRes": self._noop_handler,
                 "getDevParamRes": self._process_get_dev_param_response,
                 "identifyDevRes": self._process_identify_dev_response,
             }
@@ -674,9 +658,15 @@ class DaliGateway:
                 property_list,
             )
 
-    def _process_write_response(self, payload: Dict[str, Any]) -> None:
-        # Response is already logged by _on_message
-        pass
+    def _noop_handler(self, payload: Dict[str, Any]) -> None:
+        """No-op handler for responses that need no processing beyond logging."""
+
+    def _process_identify_dev_response(self, payload: Dict[str, Any]) -> None:
+        """Process identifyDev response.
+
+        This method exists as a hook for subclasses to override.
+        The response is already logged by _on_message.
+        """
 
     def _process_energy_report(self, payload: Dict[str, Any]) -> None:
         data = payload.get("data")
@@ -949,10 +939,6 @@ class DaliGateway:
         if scene_key in self._read_scene_events:
             self._set_event_threadsafe(self._read_scene_events[scene_key])
 
-    def _process_set_sensor_on_off_response(self, payload: Dict[str, Any]) -> None:
-        # Response is already logged by _on_message
-        pass
-
     def _process_get_sensor_on_off_response(self, payload: Dict[str, Any]) -> None:
         dev_id = gen_device_unique_id(
             payload.get("devType", ""),
@@ -965,10 +951,6 @@ class DaliGateway:
 
         self._notify_listeners(CallbackEventType.SENSOR_ON_OFF, dev_id, value)
 
-    def _process_set_sensor_argv_response(self, payload: Dict[str, Any]) -> None:
-        """Process setSensorArgv response."""
-        # Response is already logged by _on_message
-
     def _process_get_sensor_argv_response(self, payload: Dict[str, Any]) -> None:
         """Process getSensorArgv response and emit parameters to listeners."""
         dev_type = payload.get("devType", "")
@@ -979,33 +961,16 @@ class DaliGateway:
         if not data:
             return
 
-        # Convert camelCase protocol keys to snake_case Python keys
-        protocol_to_python = {
-            "enable": "enable",
-            "occpyTime": "occpy_time",
-            "reportTime": "report_time",
-            "downTime": "down_time",
-            "coverage": "coverage",
-            "sensitivity": "sensitivity",
+        # Build SensorParamType from response using protocol to Python key mapping
+        sensor_param_dict: Dict[str, Any] = {
+            SENSOR_PARAM_PROTOCOL_KEY_MAP[protocol_key]: value
+            for protocol_key, value in data.items()
+            if protocol_key in SENSOR_PARAM_PROTOCOL_KEY_MAP
         }
 
-        # Build SensorParamType from response
-        sensor_param_dict: Dict[str, Any] = {}
-        for protocol_key, value in data.items():
-            python_key = protocol_to_python.get(protocol_key)
-            if python_key:
-                sensor_param_dict[python_key] = value
-
-        # Cast to SensorParamType for type safety
         sensor_param = cast("SensorParamType", sensor_param_dict)
-
-        # Emit to listeners
         dev_id = gen_device_unique_id(dev_type, channel, address, self._gw_sn)
         self._notify_listeners(CallbackEventType.SENSOR_PARAM, dev_id, sensor_param)
-
-    def _process_set_dev_param_response(self, payload: Dict[str, Any]) -> None:
-        """Process setDevParam response."""
-        # Response is already logged by _on_message
 
     def _process_get_dev_param_response(self, payload: Dict[str, Any]) -> None:
         """Process getDevParam response and emit parameters to listeners."""
@@ -1017,39 +982,14 @@ class DaliGateway:
         if not paramer:
             return
 
-        # Convert camelCase protocol keys to snake_case Python keys
-        protocol_to_python = {
-            "address": "address",
-            "fadeTime": "fade_time",
-            "fadeRate": "fade_rate",
-            "powerStatus": "power_status",
-            "systemFailureStatus": "system_failure_status",
-            "maxBrightness": "max_brightness",
-            "minBrightness": "min_brightness",
-            "standbyPower": "standby_power",
-            "maxPower": "max_power",
-            "cctCool": "cct_cool",
-            "cctWarm": "cct_warm",
-            "phyCctCool": "phy_cct_cool",
-            "phyCctWarm": "phy_cct_warm",
-            "stepCCT": "step_cct",
-            "tempThresholds": "temp_thresholds",
-            "runtimeThresholds": "runtime_thresholds",
-            "waringRuntimeMax": "waring_runtime_max",
-            "waringTemperatureMax": "waring_temperature_max",
+        # Build DeviceParamType from response using protocol to Python key mapping
+        device_param_dict: Dict[str, Any] = {
+            DEVICE_PARAM_PROTOCOL_KEY_MAP[protocol_key]: value
+            for protocol_key, value in paramer.items()
+            if protocol_key in DEVICE_PARAM_PROTOCOL_KEY_MAP
         }
 
-        # Build DeviceParamType from response
-        device_param_dict: Dict[str, Any] = {}
-        for protocol_key, value in paramer.items():
-            python_key = protocol_to_python.get(protocol_key)
-            if python_key:
-                device_param_dict[python_key] = value
-
-        # Cast to DeviceParamType for type safety
         device_param = cast("DeviceParamType", device_param_dict)
-
-        # Emit to listeners
         dev_id = gen_device_unique_id(dev_type, channel, address, self._gw_sn)
         self._notify_listeners(CallbackEventType.DEV_PARAM, dev_id, device_param)
 
@@ -1060,10 +1000,6 @@ class DaliGateway:
             self._gw_sn,
             ack,
         )
-
-    def _process_identify_dev_response(self, payload: Dict[str, Any]) -> None:
-        """Process identifyDev response."""
-        # Response is already logged by _on_message
 
     async def _setup_ssl(self) -> None:
         try:
@@ -1837,23 +1773,13 @@ class DaliGateway:
             address: Device address
             param: Dictionary of sensor parameters to set (only provided fields will be set)
         """
-        # Build data dict dynamically from provided fields
         # Convert snake_case Python keys to camelCase protocol keys
-        param_mapping = {
-            "enable": "enable",
-            "occpy_time": "occpyTime",
-            "report_time": "reportTime",
-            "down_time": "downTime",
-            "coverage": "coverage",
-            "sensitivity": "sensitivity",
-        }
-
-        # Convert TypedDict to regular dict for iteration
         param_dict = dict(param)
-        data: Dict[str, Any] = {}
-        for python_key, protocol_key in param_mapping.items():
-            if python_key in param_dict:
-                data[protocol_key] = param_dict[python_key]
+        data: Dict[str, Any] = {
+            SENSOR_PARAM_KEY_MAP[python_key]: param_dict[python_key]
+            for python_key in param_dict
+            if python_key in SENSOR_PARAM_KEY_MAP
+        }
 
         if not data:
             _LOGGER.warning(
