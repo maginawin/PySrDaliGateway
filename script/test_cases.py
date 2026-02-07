@@ -2,7 +2,9 @@
 """Test cases for DALI Gateway functionality."""
 
 import asyncio
+import json
 import logging
+import time
 from typing import Dict, List, Tuple
 
 from test_cache import GatewayCredentialCache
@@ -13,6 +15,7 @@ from PySrDaliGateway.discovery import DaliGatewayDiscovery
 from PySrDaliGateway.exceptions import DaliGatewayError
 from PySrDaliGateway.gateway import DaliGateway
 from PySrDaliGateway.group import Group
+from PySrDaliGateway.helper import is_light_device
 from PySrDaliGateway.scene import Scene
 from PySrDaliGateway.types import (
     CallbackEventType,
@@ -51,6 +54,9 @@ class DaliGatewayTester:
         self.panel_status_events: List[Tuple[str, PanelStatus]] = []
         self.dev_param_events: List[Tuple[str, DeviceParamType]] = []
         self.sensor_param_events: List[Tuple[str, SensorParamType]] = []
+        # Test resource ID counters (for create_group/create_scene tests)
+        self._next_test_group_id = 0  # Start from 0 (physical DALI groups, 0-15)
+        self._next_test_scene_id = 0  # Start from 0
 
     def _clone_gateway(
         self,
@@ -1421,3 +1427,260 @@ class DaliGatewayTester:
         if not self.gateway or not self.is_connected:
             raise RuntimeError("Gateway not connected")
         return self.gateway
+
+    async def test_create_group(self) -> bool:
+        """Test creating a test group (cumulative, not cleaned up automatically)."""
+        if not self._check_connection():
+            return False
+
+        try:
+            _LOGGER.info("=== Testing Group Creation (Cumulative) ===")
+            gateway = self._assert_gateway()
+
+            # Wait for DALI bus to become idle (avoid statusBus busy responses)
+            _LOGGER.info("Waiting for DALI bus to become idle...")
+            await asyncio.sleep(3.0)
+
+            # Generate test group ID and name
+            group_id = self._next_test_group_id
+            self._next_test_group_id += 1
+            timestamp = int(time.time())
+            group_name = f"test_group_{timestamp}"
+
+            # Select up to 3 devices for the group
+            if not self.devices:
+                _LOGGER.error("No devices available! Run device discovery first.")
+                return False
+
+            devices_for_group = self.devices[:3]
+            device_data = [
+                {
+                    "devType": dev.dev_type,
+                    "channel": dev.channel,
+                    "address": dev.address,
+                }
+                for dev in devices_for_group
+            ]
+
+            _LOGGER.info(
+                "Creating group ID %d (%s) with %d device(s)...",
+                group_id,
+                group_name,
+                len(device_data),
+            )
+
+            # Send addGroup command via MQTT
+            msg_id = str(int(time.time() * 1000))
+            payload = {
+                "cmd": "addGroup",
+                "msgId": msg_id,
+                "gwSn": gateway.gw_sn,
+                "channel": 0,
+                "groupId": group_id,
+                "crossGateway": "yes",
+                "name": group_name,
+                "areaId": "0001",
+                "data": device_data,
+            }
+
+            gateway._mqtt_client.publish(
+                gateway._pub_topic,
+                json.dumps(payload),
+            )
+
+            # Wait for addGroupRes response (observed to take ~5s)
+            _LOGGER.info("  Waiting for network confirmation...")
+            await asyncio.sleep(7.0)
+
+            # Verify by fetching groups
+            _LOGGER.info("  Verifying group creation...")
+            groups = await gateway.discover_groups()
+            created_group = next((g for g in groups if g.group_id == group_id), None)
+
+            if created_group:
+                _LOGGER.info(
+                    "✓ Group created successfully: %s (ID: %d)",
+                    created_group.name,
+                    created_group.group_id,
+                )
+                _LOGGER.info("  Members: %d device(s)", len(device_data))
+                return True
+            else:
+                _LOGGER.error("✗ Group not found after creation")
+                return False
+
+        except Exception as e:
+            _LOGGER.error("Group creation test failed: %s", e)
+            return False
+
+    async def test_create_scene(self) -> bool:
+        """Test creating a test scene (cumulative, not cleaned up automatically)."""
+        if not self._check_connection():
+            return False
+
+        try:
+            _LOGGER.info("=== Testing Scene Creation (Cumulative) ===")
+            gateway = self._assert_gateway()
+
+            # Generate test scene ID and name
+            scene_id = self._next_test_scene_id
+            self._next_test_scene_id += 1
+            timestamp = int(time.time())
+            scene_name = f"test_scene_{timestamp}"
+
+            # Select up to 2 devices for the scene
+            if not self.devices:
+                _LOGGER.error("No devices available! Run device discovery first.")
+                return False
+
+            devices_for_scene = [
+                dev for dev in self.devices if is_light_device(dev.dev_type)
+            ][:2]
+
+            if not devices_for_scene:
+                _LOGGER.error("No light devices available for scene!")
+                return False
+
+            # Build scene device data with property settings
+            scene_device_data = []
+            for dev in devices_for_scene:
+                scene_device_data.append(
+                    {
+                        "gwSnObj": gateway.gw_sn,
+                        "devType": dev.dev_type,
+                        "channel": dev.channel,
+                        "address": dev.address,
+                        "property": [
+                            {"dpid": 22, "dataType": "uint16", "value": 128},  # brightness
+                            {"dpid": 23, "dataType": "uint16", "value": 4000},  # color temp
+                        ],
+                    }
+                )
+
+            _LOGGER.info(
+                "Creating scene ID %d (%s) with %d device(s)...",
+                scene_id,
+                scene_name,
+                len(scene_device_data),
+            )
+
+            # Send addScene command via MQTT
+            msg_id = str(int(time.time() * 1000))
+            payload = {
+                "cmd": "addScene",
+                "msgId": msg_id,
+                "gwSn": gateway.gw_sn,
+                "channel": 0,
+                "sceneId": scene_id,
+                "crossGateway": "yes",
+                "name": scene_name,
+                "areaId": "0001",
+                "data": {"objType": "device", "device": scene_device_data},
+            }
+
+            gateway._mqtt_client.publish(
+                gateway._pub_topic,
+                json.dumps(payload),
+            )
+
+            # Wait for addSceneRes response
+            _LOGGER.info("  Waiting for network confirmation...")
+            await asyncio.sleep(7.0)
+
+            # Verify by fetching scenes
+            _LOGGER.info("  Verifying scene creation...")
+            scenes = await gateway.discover_scenes()
+            created_scene = next((s for s in scenes if s.scene_id == scene_id), None)
+
+            if created_scene:
+                _LOGGER.info(
+                    "✓ Scene created successfully: %s (ID: %d)",
+                    created_scene.name,
+                    created_scene.scene_id,
+                )
+                _LOGGER.info("  Devices: %d", len(scene_device_data))
+                return True
+            else:
+                _LOGGER.error("✗ Scene not found after creation")
+                return False
+
+        except Exception as e:
+            _LOGGER.error("Scene creation test failed: %s", e)
+            return False
+
+    async def test_cleanup_test_data(self) -> bool:
+        """Clean up all test groups and scenes (name starts with 'test_')."""
+        if not self._check_connection():
+            return False
+
+        try:
+            _LOGGER.info("=== Cleaning Up Test Data ===")
+            gateway = self._assert_gateway()
+
+            deleted_groups = 0
+            deleted_scenes = 0
+
+            # Fetch all groups and scenes
+            groups = await gateway.discover_groups()
+            scenes = await gateway.discover_scenes()
+
+            # Delete test groups
+            test_groups = [g for g in groups if g.name.startswith("test_")]
+            if test_groups:
+                _LOGGER.info("Found %d test group(s) to delete", len(test_groups))
+                for group in test_groups:
+                    _LOGGER.info(
+                        "  Deleting group: %s (ID: %d)", group.name, group.group_id
+                    )
+                    msg_id = str(int(time.time() * 1000))
+                    payload = {
+                        "cmd": "delGroup",
+                        "msgId": msg_id,
+                        "gwSn": gateway.gw_sn,
+                        "channel": group.channel,
+                        "groupId": group.group_id,
+                    }
+                    gateway._mqtt_client.publish(
+                        gateway._pub_topic,
+                        json.dumps(payload),
+                    )
+                    await asyncio.sleep(0.2)
+                    deleted_groups += 1
+            else:
+                _LOGGER.info("No test groups found")
+
+            # Delete test scenes
+            test_scenes = [s for s in scenes if s.name.startswith("test_")]
+            if test_scenes:
+                _LOGGER.info("Found %d test scene(s) to delete", len(test_scenes))
+                for scene in test_scenes:
+                    _LOGGER.info(
+                        "  Deleting scene: %s (ID: %d)", scene.name, scene.scene_id
+                    )
+                    msg_id = str(int(time.time() * 1000))
+                    payload = {
+                        "cmd": "delScene",
+                        "msgId": msg_id,
+                        "gwSn": gateway.gw_sn,
+                        "channel": scene.channel,
+                        "sceneId": scene.scene_id,
+                    }
+                    gateway._mqtt_client.publish(
+                        gateway._pub_topic,
+                        json.dumps(payload),
+                    )
+                    await asyncio.sleep(0.2)
+                    deleted_scenes += 1
+            else:
+                _LOGGER.info("No test scenes found")
+
+            _LOGGER.info(
+                "✓ Cleanup completed: %d group(s) and %d scene(s) deleted",
+                deleted_groups,
+                deleted_scenes,
+            )
+            return True
+
+        except Exception as e:
+            _LOGGER.error("Cleanup test failed: %s", e)
+            return False

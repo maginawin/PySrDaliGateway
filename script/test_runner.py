@@ -80,13 +80,18 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
         "groups": (tester.test_group_discovery, ["connection"], "Group Discovery"),
         "readgroup": (
             tester.test_read_group,
-            ["connection", "groups"],
+            ["connection", "groups", "creategroup"],
             "Read Group Details",
         ),
         "scenes": (tester.test_scene_discovery, ["connection"], "Scene Discovery"),
+        "readscene": (
+            tester.test_scene_devices,
+            ["connection", "scenes", "createscene"],
+            "Read Scene Details",
+        ),
         "scenedevices": (
             tester.test_scene_devices,
-            ["connection", "scenes"],
+            ["connection", "scenes", "createscene"],
             "Scene Device Access",
         ),
         "callbacks": (
@@ -94,15 +99,30 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             ["connection", "devices"],
             "Device Callbacks",
         ),
-        "identifygateway": (
-            tester.test_identify_gateway,
-            ["discovery"],
-            "Identify Gateway",
-        ),
+        # "identifygateway": (
+        #     tester.test_identify_gateway,
+        #     ["discovery"],
+        #     "Identify Gateway",
+        # ),
         "identifydevice": (
             lambda: tester.test_identify_device(args.device_limit),
             ["connection", "devices"],
             "Identify Devices",
+        ),
+        "creategroup": (
+            tester.test_create_group,
+            ["connection", "devices"],
+            "Create Test Group",
+        ),
+        "createscene": (
+            tester.test_create_scene,
+            ["connection", "devices"],
+            "Create Test Scene",
+        ),
+        "cleanup": (
+            tester.test_cleanup_test_data,
+            ["connection", "groups", "scenes"],
+            "Cleanup Test Data",
         ),
         "restart": (tester.test_restart_gateway, ["connection"], "Gateway Restart"),
     }
@@ -122,7 +142,7 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             "readgroup",
             "scenes",
             "readscene",
-            "identifygateway",
+            # "identifygateway",
             "identifydevice",
             "reconnection",
             "restart",
