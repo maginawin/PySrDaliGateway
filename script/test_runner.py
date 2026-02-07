@@ -124,6 +124,23 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             ["connection", "groups", "scenes"],
             "Cleanup Test Data",
         ),
+        "busscan": (
+            tester.test_bus_scan_basic,
+            [
+                "connection"
+            ],  # Removed "devices" dependency to test without prior exited discovery
+            "Bus Scan (Basic Flow)",
+        ),
+        "busscanbusy": (
+            tester.test_bus_scan_after_control,
+            ["connection", "devices"],
+            "Bus Scan After Control",
+        ),
+        "stopscan": (
+            tester.test_stop_scan,
+            ["connection"],
+            "Stop Bus Scan",
+        ),
         "restart": (tester.test_restart_gateway, ["connection"], "Gateway Restart"),
     }
 

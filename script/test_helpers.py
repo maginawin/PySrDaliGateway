@@ -5,7 +5,8 @@ import asyncio
 import json
 import logging
 import socket
-from typing import Any, Dict, List, Sequence
+import time
+from typing import Any, Dict, List, Sequence, Tuple
 
 import psutil
 
@@ -137,6 +138,21 @@ class TestDaliGateway(DaliGateway):
         # Track identify responses
         self._identify_received = asyncio.Event()
         self._identify_ack: bool = False
+        # Track raw searchDevRes payloads with timestamps
+        self.bus_scan_raw_messages: List[Tuple[float, Dict[str, Any]]] = []
+
+    def _process_search_device_response(self, payload_json: Dict[str, Any]) -> None:
+        """Override to record raw searchDevRes payloads with timestamps."""
+        # Record raw payload before processing
+        self.bus_scan_raw_messages.append((time.time(), payload_json))
+        _LOGGER.debug(
+            "Gateway %s: Recorded searchDevRes payload (searchFlag=%s, searchStatus=%s)",
+            self._gw_sn,
+            payload_json.get("searchFlag"),
+            payload_json.get("searchStatus"),
+        )
+        # Call parent to preserve existing behavior
+        super()._process_search_device_response(payload_json)
 
     def _process_identify_dev_response(self, payload: Dict[str, Any]) -> None:
         """Override to track identify responses for testing."""

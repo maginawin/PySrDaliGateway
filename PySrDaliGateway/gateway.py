@@ -157,10 +157,14 @@ class DaliGateway:
         self._scenes_received = asyncio.Event()
         self._groups_received = asyncio.Event()
         self._devices_received = asyncio.Event()
+        self._bus_scan_complete = asyncio.Event()
 
         self._scenes_result: list[Scene] = []
         self._groups_result: list[Group] = []
         self._devices_result: list[Device] = []
+        self._bus_scan_result: list[Device] = []
+        self._bus_scan_cancelled = False
+        self._bus_scanning = False
         self._read_group_events: Dict[Tuple[int, int], asyncio.Event] = {}
         self._read_group_results: Dict[Tuple[int, int], Dict[str, Any]] = {}
         self._read_scene_events: Dict[Tuple[int, int], asyncio.Event] = {}
@@ -320,6 +324,11 @@ class DaliGateway:
     def connection_state(self) -> ConnectionState:
         """Return the current connection state."""
         return self._connection_state
+
+    @property
+    def bus_scanning(self) -> bool:
+        """Return True if a bus scan is currently in progress."""
+        return self._bus_scanning
 
     def _set_event_threadsafe(self, event: asyncio.Event) -> None:
         """Set an asyncio.Event in a thread-safe manner."""
@@ -734,43 +743,117 @@ class DaliGateway:
             self._notify_listeners(CallbackEventType.ENERGY_DATA, dev_id, energy_data)
 
     def _process_search_device_response(self, payload_json: Dict[str, Any]) -> None:
-        for raw_device_data in payload_json.get("data", []):
-            dev_type = str(raw_device_data.get("devType", ""))
-            channel = int(raw_device_data.get("channel", 0))
-            address = int(raw_device_data.get("address", 0))
-
-            unique_id = gen_device_unique_id(dev_type, channel, address, self._gw_sn)
-            dev_id = str(raw_device_data.get("devId") or unique_id)
-            name = str(
-                raw_device_data.get("name")
-                or gen_device_name(dev_type, channel, address)
-            )
-
-            device = Device(
-                self,
-                unique_id=unique_id,
-                dev_id=dev_id,
-                name=name,
-                dev_type=dev_type,
-                channel=channel,
-                address=address,
-                status=str(raw_device_data.get("status", "")),
-                dev_sn=str(raw_device_data.get("devSn", "")),
-                area_name=str(raw_device_data.get("areaName", "")),
-                area_id=str(raw_device_data.get("areaId", "")),
-                model=DEVICE_MODEL_MAP.get(dev_type, "Unknown"),
-                properties=[],
-            )
-
-            if not any(
-                existing.unique_id == device.unique_id
-                for existing in self._devices_result
-            ):
-                self._devices_result.append(device)
-
+        search_flag = payload_json.get("searchFlag", "exited")
         search_status = payload_json.get("searchStatus")
-        if search_status in {0, 1}:
-            self._set_event_threadsafe(self._devices_received)
+
+        # Route based on search mode
+        if search_flag == "busDevice":
+            # Bus scan mode - handle state machine
+            _LOGGER.debug("Gateway %s: Bus scan status %s", self._gw_sn, search_status)
+
+            if search_status == 2:
+                # Scanning in progress
+                _LOGGER.info("Gateway %s: Bus scan in progress...", self._gw_sn)
+            elif search_status == 3:
+                # Device data reported - accumulate devices
+                device_count_before = len(self._bus_scan_result)
+                for raw_device_data in payload_json.get("data", []):
+                    dev_type = str(raw_device_data.get("devType", ""))
+                    channel = int(raw_device_data.get("channel", 0))
+                    address = int(raw_device_data.get("address", 0))
+
+                    unique_id = gen_device_unique_id(
+                        dev_type, channel, address, self._gw_sn
+                    )
+                    dev_id = str(raw_device_data.get("devId") or unique_id)
+                    name = str(
+                        raw_device_data.get("name")
+                        or gen_device_name(dev_type, channel, address)
+                    )
+
+                    device = Device(
+                        self,
+                        unique_id=unique_id,
+                        dev_id=dev_id,
+                        name=name,
+                        dev_type=dev_type,
+                        channel=channel,
+                        address=address,
+                        status=str(raw_device_data.get("status", "")),
+                        dev_sn=str(raw_device_data.get("devSn", "")),
+                        area_name=str(raw_device_data.get("areaName", "")),
+                        area_id=str(raw_device_data.get("areaId", "")),
+                        model=DEVICE_MODEL_MAP.get(dev_type, "Unknown"),
+                        properties=[],
+                    )
+
+                    # Deduplicate by unique_id
+                    if not any(
+                        existing.unique_id == device.unique_id
+                        for existing in self._bus_scan_result
+                    ):
+                        self._bus_scan_result.append(device)
+
+                device_count_after = len(self._bus_scan_result)
+                _LOGGER.info(
+                    "Gateway %s: Received %d devices (total: %d)",
+                    self._gw_sn,
+                    device_count_after - device_count_before,
+                    device_count_after,
+                )
+            elif search_status in {0, 1}:
+                # Scan complete
+                if search_status == 0:
+                    _LOGGER.info(
+                        "Gateway %s: Bus scan complete - no devices found", self._gw_sn
+                    )
+                else:
+                    _LOGGER.info(
+                        "Gateway %s: Bus scan complete - found %d device(s)",
+                        self._gw_sn,
+                        len(self._bus_scan_result),
+                    )
+                self._set_event_threadsafe(self._bus_scan_complete)
+        else:
+            # Legacy exited mode - original behavior
+            for raw_device_data in payload_json.get("data", []):
+                dev_type = str(raw_device_data.get("devType", ""))
+                channel = int(raw_device_data.get("channel", 0))
+                address = int(raw_device_data.get("address", 0))
+
+                unique_id = gen_device_unique_id(
+                    dev_type, channel, address, self._gw_sn
+                )
+                dev_id = str(raw_device_data.get("devId") or unique_id)
+                name = str(
+                    raw_device_data.get("name")
+                    or gen_device_name(dev_type, channel, address)
+                )
+
+                device = Device(
+                    self,
+                    unique_id=unique_id,
+                    dev_id=dev_id,
+                    name=name,
+                    dev_type=dev_type,
+                    channel=channel,
+                    address=address,
+                    status=str(raw_device_data.get("status", "")),
+                    dev_sn=str(raw_device_data.get("devSn", "")),
+                    area_name=str(raw_device_data.get("areaName", "")),
+                    area_id=str(raw_device_data.get("areaId", "")),
+                    model=DEVICE_MODEL_MAP.get(dev_type, "Unknown"),
+                    properties=[],
+                )
+
+                if not any(
+                    existing.unique_id == device.unique_id
+                    for existing in self._devices_result
+                ):
+                    self._devices_result.append(device)
+
+            if search_status in {0, 1}:
+                self._set_event_threadsafe(self._devices_received)
 
     def _process_get_scene_response(self, payload_json: Dict[str, Any]) -> None:
         self._scenes_result.clear()
@@ -1470,6 +1553,100 @@ class DaliGateway:
             len(self._devices_result),
         )
         return self._devices_result
+
+    async def scan_bus(self, channels: list[int]) -> list[Device]:
+        """Scan DALI bus for physical devices.
+
+        This sends a searchDev command with searchFlag: "busDevice" to perform
+        a physical bus scan, as opposed to discover_devices() which reads from
+        gateway cache (searchFlag: "exited").
+
+        Args:
+            channels: List of channel numbers to scan
+
+        Returns:
+            List of Device objects found on the bus
+
+        Raises:
+            asyncio.TimeoutError: If scan does not complete within 600 seconds
+        """
+        self._bus_scan_complete = asyncio.Event()
+        self._bus_scan_result.clear()
+        self._bus_scan_cancelled = False
+        self._bus_scanning = True
+
+        search_payload = {
+            "cmd": "searchDev",
+            "searchFlag": "busDevice",
+            "channel": channels,
+            "AddrAssignment": "auto",
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+        }
+
+        _LOGGER.debug(
+            "Gateway %s: Sending bus scan command for channels %s",
+            self._gw_sn,
+            channels,
+        )
+        _LOGGER.debug(
+            "Gateway %s: Bus scan payload: %s", self._gw_sn, json.dumps(search_payload)
+        )
+        self._mqtt_client.publish(self._pub_topic, json.dumps(search_payload))
+
+        try:
+            await asyncio.wait_for(self._bus_scan_complete.wait(), timeout=600.0)
+        except asyncio.TimeoutError:
+            _LOGGER.warning(
+                "Gateway %s: Timeout waiting for bus scan to complete", self._gw_sn
+            )
+            # Discard partial results on timeout
+            self._bus_scan_result.clear()
+            self._bus_scanning = False
+            raise
+
+        self._bus_scanning = False
+
+        # Check if scan was cancelled
+        if self._bus_scan_cancelled:
+            _LOGGER.info("Gateway %s: Bus scan was cancelled", self._gw_sn)
+            # Discard partial results on cancellation
+            self._bus_scan_result.clear()
+            return []
+
+        _LOGGER.info(
+            "Gateway %s: Bus scan completed, found %d device(s)",
+            self._gw_sn,
+            len(self._bus_scan_result),
+        )
+        return self._bus_scan_result
+
+    async def stop_scan(self) -> None:
+        """Stop an in-progress bus scan.
+
+        This sends a searchDev command with searchFlag: "stop" to halt
+        the current bus scan operation. The method proactively sets the
+        completion event to unblock scan_bus(), regardless of gateway response.
+
+        Note: Gateway response behavior to stop command is not fully documented
+        and needs validation with real devices.
+        """
+        stop_payload = {
+            "cmd": "searchDev",
+            "searchFlag": "stop",
+            "msgId": str(int(time.time())),
+            "gwSn": self._gw_sn,
+        }
+
+        _LOGGER.debug("Gateway %s: Sending bus scan stop command", self._gw_sn)
+        self._mqtt_client.publish(self._pub_topic, json.dumps(stop_payload))
+
+        # Mark as cancelled and proactively unblock scan_bus()
+        # Don't rely on gateway response as its behavior is not fully known
+        self._bus_scan_cancelled = True
+        self._set_event_threadsafe(self._bus_scan_complete)
+
+        _LOGGER.info("Gateway %s: Bus scan stop signal sent", self._gw_sn)
 
     async def discover_groups(self) -> list[Group]:
         """Discover all groups and read their detailed configuration with limited concurrency.

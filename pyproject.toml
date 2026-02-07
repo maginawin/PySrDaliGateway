@@ -157,4 +157,4 @@ max-complexity = 25
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"script/*" = ["T20"]  # Allow print statements in scripts
+"script/*" = ["T20", "SLF001", "BLE001", "TRY300"]  # Scripts: allow prints, private access, broad exceptions, try-returns
