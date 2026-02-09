@@ -101,6 +101,8 @@ INBOUND_CALLBACK_BATCH_WINDOW_MS = 100
 # Concurrency limits for MQTT operations
 MAX_CONCURRENT_READS = 3  # Limit parallel read operations to avoid MQTT message storms
 
+BUS_SCAN_TIMEOUT = 600.0  # Maximum seconds to wait for a physical bus scan to complete
+
 CA_CERT_PATH = resources.files("PySrDaliGateway") / "certs" / "ca.crt"
 
 # Protocol key mappings for device parameters
