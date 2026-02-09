@@ -34,7 +34,7 @@ from .const import (
     SENSOR_PARAM_PROTOCOL_KEY_MAP,
 )
 from .device import Device
-from .exceptions import DaliGatewayError
+from .exceptions import BusScanCancelledError, DaliGatewayError
 from .group import Group
 from .helper import (
     gen_device_name,
@@ -165,6 +165,7 @@ class DaliGateway:
         self._devices_result: list[Device] = []
         self._bus_scan_result: list[Device] = []
         self._bus_scan_cancelled = False
+        self._bus_scan_channels: list[int] = []
         self._bus_scanning = False
         self._read_group_events: Dict[Tuple[int, int], asyncio.Event] = {}
         self._read_group_results: Dict[Tuple[int, int], Dict[str, Any]] = {}
@@ -787,7 +788,8 @@ class DaliGateway:
             _LOGGER.debug("Gateway %s: Bus scan status %s", self._gw_sn, search_status)
 
             if search_status == 2:
-                # Scanning in progress
+                # Scanning in progress - track actual gateway state
+                self._bus_scanning = True
                 _LOGGER.info("Gateway %s: Bus scan in progress...", self._gw_sn)
             elif search_status == 3:
                 # Device data reported - accumulate devices
@@ -803,7 +805,8 @@ class DaliGateway:
                     len(self._bus_scan_result),
                 )
             elif search_status in {0, 1}:
-                # Scan complete
+                # Scan complete - track actual gateway state
+                self._bus_scanning = False
                 if search_status == 0:
                     _LOGGER.info(
                         "Gateway %s: Bus scan complete - no devices found", self._gw_sn
@@ -1544,6 +1547,7 @@ class DaliGateway:
         self._bus_scan_result.clear()
         self._bus_scan_cancelled = False
         self._bus_scanning = True
+        self._bus_scan_channels = channels
 
         search_payload = {
             "cmd": "searchDev",
@@ -1584,7 +1588,10 @@ class DaliGateway:
             _LOGGER.info("Gateway %s: Bus scan was cancelled", self._gw_sn)
             # Discard partial results on cancellation
             self._bus_scan_result.clear()
-            return []
+            raise BusScanCancelledError(
+                f"Bus scan cancelled for gateway {self._gw_sn}",
+                gw_sn=self._gw_sn,
+            )
 
         _LOGGER.info(
             "Gateway %s: Bus scan completed, found %d device(s)",
@@ -1603,15 +1610,20 @@ class DaliGateway:
         Note: Gateway response behavior to stop command is not fully documented
         and needs validation with real devices.
         """
-        stop_payload = {
+        stop_payload: dict[str, Any] = {
             "cmd": "searchDev",
             "searchFlag": "stop",
             "msgId": str(int(time.time())),
             "gwSn": self._gw_sn,
         }
+        if self._bus_scan_channels:
+            stop_payload["channel"] = self._bus_scan_channels
 
-        _LOGGER.debug("Gateway %s: Sending bus scan stop command", self._gw_sn)
-        self._mqtt_client.publish(self._pub_topic, json.dumps(stop_payload))
+        stop_json = json.dumps(stop_payload)
+        _LOGGER.debug(
+            "Gateway %s: Sending bus scan stop command: %s", self._gw_sn, stop_json
+        )
+        self._mqtt_client.publish(self._pub_topic, stop_json)
 
         # Mark as cancelled and proactively unblock scan_bus()
         # Don't rely on gateway response as its behavior is not fully known

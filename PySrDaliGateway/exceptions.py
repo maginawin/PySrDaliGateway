@@ -7,3 +7,7 @@ class DaliGatewayError(Exception):
     def __init__(self, message: str, gw_sn: str | None = None):
         super().__init__(message)
         self.gw_sn = gw_sn
+
+
+class BusScanCancelledError(DaliGatewayError):
+    """Raised when a bus scan is cancelled via stop_scan()."""
