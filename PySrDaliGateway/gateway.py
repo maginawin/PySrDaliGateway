@@ -22,6 +22,7 @@ except ImportError:
     HAS_CALLBACK_API_VERSION = False  # pyright: ignore[reportConstantRedefinition]
 
 from .const import (
+    BUS_SCAN_TIMEOUT,
     CA_CERT_PATH,
     DEVICE_MODEL_MAP,
     DEVICE_PARAM_KEY_MAP,
@@ -200,7 +201,7 @@ class DaliGateway:
     def _get_device_key(self, dev_type: str, channel: int, address: int) -> str:
         return f"{dev_type}_{channel}_{address}"
 
-    def _build_paramer(self, param: DeviceParamType) -> Dict[str, Any]:
+    def _build_parameter(self, param: DeviceParamType) -> Dict[str, Any]:
         """Convert DeviceParamType to protocol format using snake_case to camelCase mapping."""
         param_dict = dict(param)
         return {
@@ -742,6 +743,40 @@ class DaliGateway:
 
             self._notify_listeners(CallbackEventType.ENERGY_DATA, dev_id, energy_data)
 
+    def _parse_device_from_raw(self, raw: Dict[str, Any]) -> Device:
+        """Parse a raw device dict from searchDevRes into a Device object."""
+        dev_type = str(raw.get("devType", ""))
+        channel = int(raw.get("channel", 0))
+        address = int(raw.get("address", 0))
+
+        unique_id = gen_device_unique_id(dev_type, channel, address, self._gw_sn)
+        dev_id = str(raw.get("devId") or unique_id)
+        name = str(raw.get("name") or gen_device_name(dev_type, channel, address))
+
+        return Device(
+            self,
+            unique_id=unique_id,
+            dev_id=dev_id,
+            name=name,
+            dev_type=dev_type,
+            channel=channel,
+            address=address,
+            status=str(raw.get("status", "")),
+            dev_sn=str(raw.get("devSn", "")),
+            area_name=str(raw.get("areaName", "")),
+            area_id=str(raw.get("areaId", "")),
+            model=DEVICE_MODEL_MAP.get(dev_type, "Unknown"),
+            properties=[],
+        )
+
+    @staticmethod
+    def _append_unique(device: Device, result: list[Device]) -> bool:
+        """Append device to result list if unique_id is not already present."""
+        if any(existing.unique_id == device.unique_id for existing in result):
+            return False
+        result.append(device)
+        return True
+
     def _process_search_device_response(self, payload_json: Dict[str, Any]) -> None:
         search_flag = payload_json.get("searchFlag", "exited")
         search_status = payload_json.get("searchStatus")
@@ -756,50 +791,16 @@ class DaliGateway:
                 _LOGGER.info("Gateway %s: Bus scan in progress...", self._gw_sn)
             elif search_status == 3:
                 # Device data reported - accumulate devices
-                device_count_before = len(self._bus_scan_result)
-                for raw_device_data in payload_json.get("data", []):
-                    dev_type = str(raw_device_data.get("devType", ""))
-                    channel = int(raw_device_data.get("channel", 0))
-                    address = int(raw_device_data.get("address", 0))
-
-                    unique_id = gen_device_unique_id(
-                        dev_type, channel, address, self._gw_sn
+                count_before = len(self._bus_scan_result)
+                for raw in payload_json.get("data", []):
+                    self._append_unique(
+                        self._parse_device_from_raw(raw), self._bus_scan_result
                     )
-                    dev_id = str(raw_device_data.get("devId") or unique_id)
-                    name = str(
-                        raw_device_data.get("name")
-                        or gen_device_name(dev_type, channel, address)
-                    )
-
-                    device = Device(
-                        self,
-                        unique_id=unique_id,
-                        dev_id=dev_id,
-                        name=name,
-                        dev_type=dev_type,
-                        channel=channel,
-                        address=address,
-                        status=str(raw_device_data.get("status", "")),
-                        dev_sn=str(raw_device_data.get("devSn", "")),
-                        area_name=str(raw_device_data.get("areaName", "")),
-                        area_id=str(raw_device_data.get("areaId", "")),
-                        model=DEVICE_MODEL_MAP.get(dev_type, "Unknown"),
-                        properties=[],
-                    )
-
-                    # Deduplicate by unique_id
-                    if not any(
-                        existing.unique_id == device.unique_id
-                        for existing in self._bus_scan_result
-                    ):
-                        self._bus_scan_result.append(device)
-
-                device_count_after = len(self._bus_scan_result)
                 _LOGGER.info(
                     "Gateway %s: Received %d devices (total: %d)",
                     self._gw_sn,
-                    device_count_after - device_count_before,
-                    device_count_after,
+                    len(self._bus_scan_result) - count_before,
+                    len(self._bus_scan_result),
                 )
             elif search_status in {0, 1}:
                 # Scan complete
@@ -816,41 +817,10 @@ class DaliGateway:
                 self._set_event_threadsafe(self._bus_scan_complete)
         else:
             # Legacy exited mode - original behavior
-            for raw_device_data in payload_json.get("data", []):
-                dev_type = str(raw_device_data.get("devType", ""))
-                channel = int(raw_device_data.get("channel", 0))
-                address = int(raw_device_data.get("address", 0))
-
-                unique_id = gen_device_unique_id(
-                    dev_type, channel, address, self._gw_sn
+            for raw in payload_json.get("data", []):
+                self._append_unique(
+                    self._parse_device_from_raw(raw), self._devices_result
                 )
-                dev_id = str(raw_device_data.get("devId") or unique_id)
-                name = str(
-                    raw_device_data.get("name")
-                    or gen_device_name(dev_type, channel, address)
-                )
-
-                device = Device(
-                    self,
-                    unique_id=unique_id,
-                    dev_id=dev_id,
-                    name=name,
-                    dev_type=dev_type,
-                    channel=channel,
-                    address=address,
-                    status=str(raw_device_data.get("status", "")),
-                    dev_sn=str(raw_device_data.get("devSn", "")),
-                    area_name=str(raw_device_data.get("areaName", "")),
-                    area_id=str(raw_device_data.get("areaId", "")),
-                    model=DEVICE_MODEL_MAP.get(dev_type, "Unknown"),
-                    properties=[],
-                )
-
-                if not any(
-                    existing.unique_id == device.unique_id
-                    for existing in self._devices_result
-                ):
-                    self._devices_result.append(device)
 
             if search_status in {0, 1}:
                 self._set_event_threadsafe(self._devices_received)
@@ -1135,7 +1105,7 @@ class DaliGateway:
         if self._loop is not None and self._loop.is_running():
             self._reconnect_task = self._loop.call_later(
                 delay,
-                lambda: asyncio.ensure_future(self._reconnect(), loop=self._loop),
+                lambda: self._loop.create_task(self._reconnect()),  # type: ignore[union-attr]
             )
         else:
             _LOGGER.warning(
@@ -1568,7 +1538,7 @@ class DaliGateway:
             List of Device objects found on the bus
 
         Raises:
-            asyncio.TimeoutError: If scan does not complete within 600 seconds
+            asyncio.TimeoutError: If scan does not complete within BUS_SCAN_TIMEOUT seconds
         """
         self._bus_scan_complete = asyncio.Event()
         self._bus_scan_result.clear()
@@ -1595,7 +1565,9 @@ class DaliGateway:
         self._mqtt_client.publish(self._pub_topic, json.dumps(search_payload))
 
         try:
-            await asyncio.wait_for(self._bus_scan_complete.wait(), timeout=600.0)
+            await asyncio.wait_for(
+                self._bus_scan_complete.wait(), timeout=BUS_SCAN_TIMEOUT
+            )
         except asyncio.TimeoutError:
             _LOGGER.warning(
                 "Gateway %s: Timeout waiting for bus scan to complete", self._gw_sn
@@ -2023,7 +1995,7 @@ class DaliGateway:
             address: Device address
             param: Dictionary of device parameters to set (only provided fields will be set)
         """
-        paramer = self._build_paramer(param)
+        paramer = self._build_parameter(param)
         if not paramer:
             _LOGGER.warning(
                 "Gateway %s: No valid parameters provided for setDevParam", self._gw_sn
@@ -2054,7 +2026,7 @@ class DaliGateway:
         data: List[Dict[str, Any]] = []
 
         for item in items:
-            paramer = self._build_paramer(item["param"])
+            paramer = self._build_parameter(item["param"])
             if not paramer:
                 _LOGGER.warning(
                     "Gateway %s: No valid parameters provided for %s",
