@@ -1620,7 +1620,9 @@ class DaliGateway:
             stop_payload["channel"] = self._bus_scan_channels
 
         stop_json = json.dumps(stop_payload)
-        _LOGGER.debug("Gateway %s: Sending bus scan stop command: %s", self._gw_sn, stop_json)
+        _LOGGER.debug(
+            "Gateway %s: Sending bus scan stop command: %s", self._gw_sn, stop_json
+        )
         self._mqtt_client.publish(self._pub_topic, stop_json)
 
         # Mark as cancelled and proactively unblock scan_bus()
