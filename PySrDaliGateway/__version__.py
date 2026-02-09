@@ -1,4 +1,4 @@
 """Version information for PySrDaliGateway."""
 # pylint: disable=invalid-name
 
-__version__ = "0.20.1"
+__version__ = "0.20.2"
