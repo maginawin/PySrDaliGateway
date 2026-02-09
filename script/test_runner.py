@@ -28,17 +28,19 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
     # Available tests with dependencies
     test_registry: Dict[str, Tuple[Callable[[], Any], List[str], str]] = {
         "discovery": (
-            lambda: tester.create_gateway_direct(
-                args.direct_sn,
-                args.direct_ip,
-                args.direct_port,
-                args.direct_username,
-                args.direct_passwd,
-                args.direct_tls,
-                args.direct_name,
-            )
-            if using_testing_mode
-            else tester.test_discovery(),
+            lambda: (
+                tester.create_gateway_direct(
+                    args.direct_sn,
+                    args.direct_ip,
+                    args.direct_port,
+                    args.direct_username,
+                    args.direct_passwd,
+                    args.direct_tls,
+                    args.direct_name,
+                )
+                if using_testing_mode
+                else tester.test_discovery()
+            ),
             [],
             "Gateway Discovery"
             if not using_testing_mode
