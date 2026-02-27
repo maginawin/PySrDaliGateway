@@ -94,10 +94,7 @@ def parse_light_status(property_list: List[Dict[str, Any]]) -> LightStatus:
 
     if DPID_BRIGHTNESS in props:
         brightness_value = float(props[DPID_BRIGHTNESS])
-        if brightness_value == 0 and light_status["brightness"] is None:
-            light_status["brightness"] = 255
-        else:
-            light_status["brightness"] = int(brightness_value / 1000 * 255)
+        light_status["brightness"] = int(brightness_value / 1000 * 255)
 
     if DPID_COLOR_TEMP in props:
         light_status["color_temp_kelvin"] = int(props[DPID_COLOR_TEMP])
