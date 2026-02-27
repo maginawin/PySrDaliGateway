@@ -1897,6 +1897,11 @@ class DaliGateway:
             "data": properties,
         }
         command_json = json.dumps(command)
+        _LOGGER.debug(
+            "Gateway %s: Sending writeGroup %s",
+            self._gw_sn,
+            command_json,
+        )
         self._mqtt_client.publish(self._pub_topic, command_json)
 
     def command_write_scene(self, scene_id: int, channel: int) -> None:

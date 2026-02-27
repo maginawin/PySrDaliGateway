@@ -1,6 +1,7 @@
 """Dali Gateway Group"""
 
 import colorsys
+import logging
 from typing import Any, Callable, Dict, List, Protocol, Tuple
 
 from .base import DaliObjectBase
@@ -13,6 +14,8 @@ from .const import (
 )
 from .helper import gen_group_unique_id
 from .types import CallbackEventType, GroupDeviceType, ListenerCallback
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class SupportsGroupCommands(Protocol):
@@ -65,6 +68,14 @@ class Group(DaliObjectBase):
         return f"Group(name={self.name}, unique_id={self.unique_id})"
 
     def _send_properties(self, properties: List[Dict[str, Any]]) -> None:
+        _LOGGER.debug(
+            "Group %s (id=%d, ch=%d): Sending %d properties: %s",
+            self.name,
+            self.group_id,
+            self.channel,
+            len(properties),
+            properties,
+        )
         for prop in properties:
             self._client.command_write_group(self.group_id, self.channel, [prop])
 
