@@ -85,6 +85,16 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             ["connection", "groups", "creategroup"],
             "Read Group Details",
         ),
+        "groupcontrol": (
+            tester.test_group_control,
+            ["connection", "groups", "devices"],
+            "Group Control (turn_on/turn_off)",
+        ),
+        "groupbrightness": (
+            tester.test_group_brightness,
+            ["connection", "groups", "devices"],
+            "Group Brightness Levels",
+        ),
         "scenes": (tester.test_scene_discovery, ["connection"], "Scene Discovery"),
         "readscene": (
             tester.test_scene_devices,
@@ -159,6 +169,8 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             "setdevparam",
             "groups",
             "readgroup",
+            "groupcontrol",
+            "groupbrightness",
             "scenes",
             "readscene",
             # "identifygateway",
