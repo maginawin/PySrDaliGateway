@@ -569,6 +569,138 @@ class DaliGatewayTester:
             _LOGGER.info("✓ Device parameter configuration test completed")
             return True
 
+    async def test_read_cct_range(self) -> bool:
+        """Test reading CCT range parameters from devices.
+
+        Verifies that CCT devices (devType 0102) return cct_cool and cct_warm
+        fields via getDevParam, and that non-CCT devices do not.
+        """
+        if not self._check_connection():
+            return False
+
+        if not self.devices:
+            _LOGGER.warning("No devices available! Run device discovery first.")
+            return False
+
+        _LOGGER.info("=== Testing CCT Range Reading ===")
+
+        try:
+            # Split devices into CCT and non-CCT
+            cct_devices = [d for d in self.devices if d.dev_type == "0102"]
+            non_cct_devices = [
+                d
+                for d in self.devices
+                if d.dev_type != "0102" and is_light_device(d.dev_type)
+            ]
+
+            if not cct_devices:
+                _LOGGER.warning(
+                    "No CCT devices (devType 0102) found - skipping CCT test"
+                )
+                return True  # Not a failure, just no suitable device
+
+            # Test 1: CCT devices should return cct_cool and cct_warm
+            _LOGGER.info("\n--- Test 1: Read CCT range from CCT devices ---")
+            for device in cct_devices:
+                self.dev_param_events.clear()
+                device.register_listener(
+                    CallbackEventType.DEV_PARAM,
+                    self._make_dev_param_callback(device.dev_id),
+                )
+                device.get_device_parameters()
+
+                baseline = len(self.dev_param_events)
+                got_params = await self._await_dev_param(baseline, timeout=12.0)
+
+                if not got_params:
+                    _LOGGER.error(
+                        "✗ No parameters received for CCT device %s", device.name
+                    )
+                    return False
+
+                params = self.dev_param_events[-1][1]
+                _LOGGER.info("Device %s parameters: %s", device.name, params)
+
+                # Verify CCT fields are present in response.
+                # Values may be 0 if not configured in DALI Center.
+                if "cct_cool" not in params or "cct_warm" not in params:
+                    _LOGGER.error(
+                        "✗ CCT device %s response missing cct_cool/cct_warm keys",
+                        device.name,
+                    )
+                    return False
+
+                cct_cool = params["cct_cool"]
+                cct_warm = params["cct_warm"]
+
+                if cct_cool == 0 and cct_warm == 0:
+                    _LOGGER.info(
+                        "✓ Device %s CCT range: not configured (0/0, will use defaults)",
+                        device.name,
+                    )
+                elif 1000 <= cct_warm <= 10000 and 1000 <= cct_cool <= 10000:
+                    _LOGGER.info(
+                        "✓ Device %s CCT range: %dK - %dK",
+                        device.name,
+                        cct_warm,
+                        cct_cool,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "Device %s has unexpected CCT values: warm=%d, cool=%d",
+                        device.name,
+                        cct_warm,
+                        cct_cool,
+                    )
+
+            # Test 2: Non-CCT devices should not have CCT fields (or they are 0)
+            if non_cct_devices:
+                _LOGGER.info("\n--- Test 2: Verify non-CCT devices lack CCT fields ---")
+                test_device = non_cct_devices[0]
+                self.dev_param_events.clear()
+                test_device.register_listener(
+                    CallbackEventType.DEV_PARAM,
+                    self._make_dev_param_callback(test_device.dev_id),
+                )
+                test_device.get_device_parameters()
+
+                baseline = len(self.dev_param_events)
+                got_params = await self._await_dev_param(baseline, timeout=12.0)
+
+                if got_params:
+                    params = self.dev_param_events[-1][1]
+                    cct_cool = params.get("cct_cool", 0)
+                    cct_warm = params.get("cct_warm", 0)
+                    _LOGGER.info(
+                        "Non-CCT device %s: cct_cool=%s, cct_warm=%s",
+                        test_device.name,
+                        cct_cool,
+                        cct_warm,
+                    )
+                    if cct_cool == 0 and cct_warm == 0:
+                        _LOGGER.info(
+                            "✓ Non-CCT device has no CCT fields (or zero values)"
+                        )
+                    else:
+                        _LOGGER.warning("Non-CCT device unexpectedly has CCT values")
+                else:
+                    _LOGGER.info(
+                        "✓ Non-CCT device %s returned no parameters",
+                        test_device.name,
+                    )
+            else:
+                _LOGGER.info("No non-CCT light devices to test - skipping Test 2")
+
+        except (DaliGatewayError, RuntimeError) as e:
+            _LOGGER.error("CCT range reading test failed: %s", e)
+            return False
+        except KeyboardInterrupt:
+            _LOGGER.error("CCT range reading test interrupted by user")
+            return False
+        else:
+            _LOGGER.info("✓ CCT range reading test completed")
+            return True
+
     async def test_set_sensor_param(self) -> bool:
         """Test setting sensor parameters (occupancy time, sensitivity, coverage, etc.)."""
         if not self._check_connection():
