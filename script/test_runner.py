@@ -74,6 +74,11 @@ async def run_selected_tests(tester: DaliGatewayTester, args: Any) -> bool:
             ["devices"],
             "SetDevParam Commands",
         ),
+        "readcct": (
+            tester.test_read_cct_range,
+            ["connection", "devices"],
+            "Read CCT Range",
+        ),
         "setsensorparam": (
             tester.test_set_sensor_param,
             ["connection"],
