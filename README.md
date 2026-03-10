@@ -31,49 +31,67 @@ pip install PySrDaliGateway
 - Python 3.8+
 - paho-mqtt>=1.6.0
 
-## CLI Testing Tool
+## Testing
 
-Testing script located at `script/test_discovery_to_connect.py` for hardware validation:
+Hardware integration tests use pytest with real DALI gateway hardware.
+
+### Setup
 
 ```bash
-# Run all tests
-python script/test_discovery_to_connect.py
-
-# Run specific tests
-python script/test_discovery_to_connect.py --tests discovery connection devices
-
-# List available tests
-python script/test_discovery_to_connect.py --list-tests
-
-# Test device callbacks specifically
-python script/test_discovery_to_connect.py --tests callbacks
-
-# Test with specific gateway
-python script/test_discovery_to_connect.py --gateway-sn "YOUR_GATEWAY_SN"
-
-# Limit device operations for faster testing
-python script/test_discovery_to_connect.py --device-limit 5
-
-# Testing mode (skip discovery) - when you know gateway parameters
-python script/test_discovery_to_connect.py \
-  --direct-sn GW123456 \
-  --direct-ip 192.168.1.100 \
-  --direct-username admin \
-  --direct-passwd password123
+pip install -e ".[dev]"
 ```
 
-Available tests:
+### Running Tests
 
-- `discovery` - Discover DALI gateways on network
-- `connection` - Connect to discovered gateway
-- `version` - Get gateway firmware version
-- `devices` - Discover connected DALI devices
-- `readdev` - Read device status via MQTT
-- `callbacks` - Test device status callbacks (light, motion, illuminance, panel)
-- `devparam` - Get device parameters
-- `groups` - Discover DALI groups
-- `readgroup` - Read group details with device list
-- `scenes` - Discover DALI scenes
-- `readscene` - Read scene details with device list and property values
-- `restart` - Restart gateway (WARNING: gateway will disconnect)
-- `reconnection` - Test disconnect/reconnect cycle
+```bash
+# Run default tests (excludes destructive and slow tests)
+pytest tests/
+
+# Run all tests including slow (bus scan) tests
+pytest tests/ -m ""
+
+# Run only bus scan tests
+pytest tests/ -m slow
+
+# Run only destructive tests (e.g. gateway restart)
+pytest tests/ -m destructive
+
+# Run a specific test file
+pytest tests/test_devices.py -v
+
+# Limit device iterations for faster testing
+pytest tests/ --device-limit 3
+```
+
+### Gateway Connection
+
+Tests connect to a real gateway using one of three methods (in priority order):
+
+1. **CLI parameters** — provide credentials directly:
+
+   ```bash
+   pytest tests/ --direct-sn GW123456 --direct-ip 192.168.1.100 \
+     --direct-username admin --direct-passwd password123
+   ```
+
+2. **Credential cache** — reuses credentials from a previous session, stored in `tests/.gateway_cache.json`
+3. **UDP discovery** — auto-discovers gateways on the local network
+
+### Test Markers
+
+| Marker        | Default | Description                                     |
+| ------------- | ------- | ----------------------------------------------- |
+| `destructive` | skip    | Tests that disrupt gateway state (e.g. restart) |
+| `slow`        | skip    | Long-running tests (e.g. bus scan >30s)         |
+
+### Test Files
+
+| File                 | Coverage                                                  |
+| -------------------- | --------------------------------------------------------- |
+| `test_connection.py` | Discovery, connect, disconnect, reconnection              |
+| `test_gateway.py`    | Version, status sync, restart (destructive)               |
+| `test_devices.py`    | Device discovery, read, control, CCT range, sensor params |
+| `test_groups.py`     | Group discovery, read, control, brightness                |
+| `test_scenes.py`     | Scene discovery, read, scene devices                      |
+| `test_callbacks.py`  | Real-time device status callbacks                         |
+| `test_bus_scan.py`   | Bus scan, stop scan (slow)                                |
