@@ -10,7 +10,7 @@ from PySrDaliGateway.device import Device
 from PySrDaliGateway.group import Group
 from PySrDaliGateway.types import CallbackEventType, LightStatus
 
-from .helpers import TestDaliGateway
+from .helpers import TestDaliGateway, make_light_callback
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,19 +36,6 @@ def _find_member_device_ids(
                 member_ids.append(dev.dev_id)
                 break
     return member_ids
-
-
-def _make_light_callback(
-    device_id: str,
-    events: List[Tuple[str, LightStatus]],
-):
-    """Create a light status callback that appends to *events*."""
-
-    def on_light_status(status: LightStatus) -> None:
-        events.append((device_id, status))
-        _LOGGER.info("Light status: %s -> %s", device_id, status)
-
-    return on_light_status
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +150,7 @@ async def test_group_control(
         if dev.dev_id in member_device_ids:
             dev.register_listener(
                 CallbackEventType.LIGHT_STATUS,
-                _make_light_callback(dev.dev_id, light_status_events),
+                make_light_callback(dev.dev_id, light_status_events),
             )
 
     # --- Test 1: Turn on with brightness ---
@@ -326,7 +313,7 @@ async def test_group_brightness(
         if dev.dev_id in member_device_ids:
             dev.register_listener(
                 CallbackEventType.LIGHT_STATUS,
-                _make_light_callback(dev.dev_id, light_status_events),
+                make_light_callback(dev.dev_id, light_status_events),
             )
 
     # Turn on the group first

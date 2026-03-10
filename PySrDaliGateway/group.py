@@ -89,14 +89,14 @@ class Group(DaliObjectBase):
             self._create_property(DPID_POWER, "bool", True)
         ]
 
-        if brightness:
+        if brightness is not None:
             properties.append(
                 self._create_property(
                     DPID_BRIGHTNESS, "uint16", brightness * 1000 / 255
                 )
             )
 
-        if color_temp_kelvin:
+        if color_temp_kelvin is not None:
             properties.append(
                 self._create_property(DPID_COLOR_TEMP, "uint16", color_temp_kelvin)
             )
