@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Sequence, Tuple
 import psutil
 
 from PySrDaliGateway.gateway import DaliGateway
+from PySrDaliGateway.types import LightStatus
 from PySrDaliGateway.udp_client import MessageCryptor, MulticastSender
 
 _LOGGER = logging.getLogger(__name__)
@@ -76,7 +77,7 @@ class IdentifyResponseListener:
         if self._listen_sock is None:
             return
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         while not self._response_received.is_set():
             try:
@@ -182,3 +183,16 @@ class TestDaliGateway(DaliGateway):
             return False
         else:
             return self._identify_ack
+
+
+def make_light_callback(
+    device_id: str,
+    events: List[Tuple[str, LightStatus]],
+):
+    """Create a light status callback that appends to *events*."""
+
+    def on_light_status(status: LightStatus) -> None:
+        events.append((device_id, status))
+        _LOGGER.info("Light status: %s -> %s", device_id, status)
+
+    return on_light_status

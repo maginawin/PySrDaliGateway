@@ -10,7 +10,7 @@ from typing import List, Tuple
 import pytest
 
 from PySrDaliGateway.device import Device
-from PySrDaliGateway.helper import is_cct_device, is_light_device
+from PySrDaliGateway.helper import is_cct_device, is_light_device, is_sensor_device
 from PySrDaliGateway.types import CallbackEventType, DeviceParamType, SensorParamType
 
 from .helpers import TestDaliGateway
@@ -132,7 +132,7 @@ async def test_set_dev_param(
 
     # Find a light device to test
     light_device = next(
-        (d for d in discovered_devices if d.dev_type.startswith("01")), None
+        (d for d in discovered_devices if is_light_device(d.dev_type)), None
     )
     assert light_device is not None, "No light device found for parameter testing"
 
@@ -354,7 +354,7 @@ async def test_set_sensor_param(
 
     # Find a sensor device to test
     sensor_device = next(
-        (d for d in discovered_devices if d.dev_type.startswith("02")), None
+        (d for d in discovered_devices if is_sensor_device(d.dev_type)), None
     )
 
     if not sensor_device:

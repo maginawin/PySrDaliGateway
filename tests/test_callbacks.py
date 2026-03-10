@@ -5,6 +5,7 @@ import logging
 from typing import List, Tuple
 
 from PySrDaliGateway.device import Device
+from PySrDaliGateway.helper import is_light_device
 from PySrDaliGateway.types import (
     CallbackEventType,
     IlluminanceStatus,
@@ -14,7 +15,7 @@ from PySrDaliGateway.types import (
     PanelStatus,
 )
 
-from .helpers import TestDaliGateway
+from .helpers import TestDaliGateway, make_light_callback
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,19 +23,6 @@ _LOGGER = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Callback factories
 # ---------------------------------------------------------------------------
-
-
-def _make_light_callback(
-    device_id: str,
-    events: List[Tuple[str, LightStatus]],
-):
-    """Create a light status callback that appends to *events*."""
-
-    def on_light_status(status: LightStatus) -> None:
-        events.append((device_id, status))
-        _LOGGER.info("Light status: %s -> %s", device_id, status)
-
-    return on_light_status
 
 
 def _make_motion_callback(
@@ -112,11 +100,7 @@ async def test_callback_setup(
     panel_status_events: List[Tuple[str, PanelStatus]] = []
 
     # Classify devices by type
-    light_devices = [
-        d
-        for d in discovered_devices
-        if d.dev_type in ["0101", "0102", "0103", "0104", "0105"]
-    ]
+    light_devices = [d for d in discovered_devices if is_light_device(d.dev_type)]
     motion_devices = [d for d in discovered_devices if d.dev_type == "0201"]
     illuminance_devices = [d for d in discovered_devices if d.dev_type == "0301"]
     panel_devices = [
@@ -137,7 +121,7 @@ async def test_callback_setup(
         for device in light_devices[:3]:
             device.register_listener(
                 CallbackEventType.LIGHT_STATUS,
-                _make_light_callback(device.dev_id, light_status_events),
+                make_light_callback(device.dev_id, light_status_events),
             )
             model_info = device.model or "N/A"
             _LOGGER.info(
