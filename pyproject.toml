@@ -20,6 +20,8 @@ dependencies = [
 dev = [
     "mypy>=1.0.0",
     "pre-commit",
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
     "ruff>=0.12.1",
 ]
 
@@ -162,3 +164,15 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "script/*" = ["T20", "SLF001", "BLE001", "TRY300"]  # Scripts: allow prints, private access, broad exceptions, try-returns
+"tests/*" = ["SLF001", "BLE001", "TRY300"]  # Tests: allow private access, broad exceptions, try-returns
+
+[tool.pytest.ini_options]
+python_classes = ["Describe*", "When*"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+markers = [
+    "destructive: tests that disrupt gateway state (e.g. restart)",
+    "write: tests that create/modify gateway data (e.g. creategroup, createscene)",
+    "slow: long-running tests (e.g. bus scan >30s)",
+]
+addopts = "-m 'not destructive and not slow'"

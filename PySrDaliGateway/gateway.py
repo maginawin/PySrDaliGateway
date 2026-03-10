@@ -262,7 +262,7 @@ class DaliGateway:
         )
 
         self._pending_requests[cmd].clear()
-        self._batch_timer.pop(cmd)
+        self._batch_timer.pop(cmd, None)
 
     def __repr__(self) -> str:
         return (

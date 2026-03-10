@@ -26,6 +26,10 @@ def is_light_device(dev_type: str) -> bool:
     return dev_type.startswith("01")
 
 
+def is_cct_device(dev_type: str) -> bool:
+    return dev_type == "0102"
+
+
 def is_motion_sensor(dev_type: str) -> bool:
     return dev_type.startswith("0201")
 

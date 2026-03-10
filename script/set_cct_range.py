@@ -22,6 +22,7 @@ from test_helpers import TestDaliGateway
 
 from PySrDaliGateway.device import Device
 from PySrDaliGateway.exceptions import DaliGatewayError
+from PySrDaliGateway.helper import is_cct_device
 from PySrDaliGateway.types import CallbackEventType, DeviceParamType
 
 logging.basicConfig(
@@ -105,7 +106,6 @@ async def main() -> bool:
         return callback
 
     # 4. Set CCT range for each target device
-    all_ok = True
     interval = 3  # seconds between operations
 
     for address, cct_warm, cct_cool, desc in CCT_CONFIGS:
@@ -114,10 +114,9 @@ async def main() -> bool:
             _LOGGER.warning(
                 "Address %d not found on channel 0 - skipping (%s)", address, desc
             )
-            all_ok = False
             continue
 
-        if device.dev_type != "0102":
+        if not is_cct_device(device.dev_type):
             _LOGGER.warning(
                 "Address %d is type %s, not CCT (0102) - setting anyway (%s)",
                 address,
@@ -153,7 +152,7 @@ async def main() -> bool:
             continue
 
         param_events.clear()
-        device.register_listener(
+        unsub = device.register_listener(
             CallbackEventType.DEV_PARAM,
             make_param_callback(device.dev_id),
         )
@@ -165,12 +164,13 @@ async def main() -> bool:
             if param_events:
                 break
 
+        unsub()
+
         if not param_events:
             _LOGGER.error("No parameter response for address %d", address)
             results.append(
                 {"address": address, "status": "FAIL", "reason": "no response"}
             )
-            all_ok = False
             continue
 
         got = param_events[-1][1]
@@ -187,7 +187,6 @@ async def main() -> bool:
             )
         else:
             status = "MISMATCH"
-            all_ok = False
             _LOGGER.warning(
                 "Address %d: expected warm=%d/cool=%d, got warm=%d/cool=%d",
                 address,
@@ -235,6 +234,7 @@ async def main() -> bool:
     with contextlib.suppress(DaliGatewayError):
         await gateway.disconnect()
 
+    all_ok = all(r["status"] == "OK" for r in results)
     if all_ok:
         _LOGGER.info("All CCT ranges set and verified successfully!")
         _LOGGER.info("Reload the HA integration to see updated color temp sliders.")
