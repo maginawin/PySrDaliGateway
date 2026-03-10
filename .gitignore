@@ -69,3 +69,5 @@ script/logs/*.log
 # Test cache (contains credentials)
 script/.gateway_cache.json
 script/.gateway_cache.json.tmp
+tests/.gateway_cache.json
+tests/.gateway_cache.json.tmp
