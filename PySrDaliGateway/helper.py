@@ -177,19 +177,19 @@ def parse_panel_status(property_list: List[Dict[str, Any]]) -> List[PanelStatus]
     return panel_events
 
 
+_MOTION_STATE_MAP: Dict[int, MotionState] = {
+    1: MotionState.NO_MOTION,
+    2: MotionState.MOTION,
+    3: MotionState.VACANT,
+    4: MotionState.OCCUPANCY,
+    5: MotionState.PRESENCE,
+}
+
+
 def parse_motion_status(property_list: List[Dict[str, Any]]) -> List[MotionStatus]:
     """Parse raw property list into MotionStatus objects for motion sensor devices"""
 
     motion_events: List[MotionStatus] = []
-
-    # Motion state mapping based on dpid values
-    motion_map = {
-        1: MotionState.NO_MOTION,
-        2: MotionState.MOTION,
-        3: MotionState.VACANT,
-        4: MotionState.OCCUPANCY,
-        5: MotionState.PRESENCE,
-    }
 
     for prop in property_list:
         dpid = prop.get("dpid")
@@ -197,7 +197,7 @@ def parse_motion_status(property_list: List[Dict[str, Any]]) -> List[MotionStatu
         if dpid is None:
             continue
 
-        motion_state = motion_map.get(dpid)
+        motion_state = _MOTION_STATE_MAP.get(dpid)
         if motion_state is None:
             # Default to no_motion for unknown dpid values
             motion_state = MotionState.NO_MOTION

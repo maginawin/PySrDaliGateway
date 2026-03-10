@@ -1,6 +1,7 @@
 """Dali Gateway"""
 
 import asyncio
+import contextlib
 from enum import Enum, auto
 import json
 import logging
@@ -163,7 +164,9 @@ class DaliGateway:
         self._scenes_result: list[Scene] = []
         self._groups_result: list[Group] = []
         self._devices_result: list[Device] = []
+        self._devices_seen_ids: set[str] = set()
         self._bus_scan_result: list[Device] = []
+        self._bus_scan_seen_ids: set[str] = set()
         self._bus_scan_cancelled = False
         self._bus_scan_channels: list[int] = []
         self._bus_scanning = False
@@ -187,7 +190,6 @@ class DaliGateway:
             CallbackEventType.SENSOR_PARAM: {},
         }
 
-        self._window_ms = 100
         self._pending_requests: Dict[str, Dict[str, Dict[str, Any]]] = {}
         self._batch_timer: Dict[str, asyncio.TimerHandle] = {}  # cmd -> timer
 
@@ -198,6 +200,32 @@ class DaliGateway:
         ] = {}
         self._callback_lock = threading.Lock()
         self._batch_scheduled = False
+
+        # MQTT command dispatch table (built once, not per-message)
+        self._command_handlers: Dict[str, Callable[[Dict[str, Any]], None]] = {
+            "devStatus": self._process_device_status,
+            "readDevRes": self._process_device_status,
+            "writeDevRes": self._noop_handler,
+            "writeGroupRes": self._noop_handler,
+            "writeSceneRes": self._noop_handler,
+            "onlineStatus": self._process_online_status,
+            "reportEnergy": self._process_energy_report,
+            "searchDevRes": self._process_search_device_response,
+            "getSceneRes": self._process_get_scene_response,
+            "getGroupRes": self._process_get_group_response,
+            "getVersionRes": self._process_get_version_response,
+            "readGroupRes": self._process_read_group_response,
+            "readSceneRes": self._process_read_scene_response,
+            "restartGatewayRes": self._process_restart_gateway_response,
+            "getEnergyRes": self._process_get_energy_response,
+            "setSensorOnOffRes": self._noop_handler,
+            "getSensorOnOffRes": self._process_get_sensor_on_off_response,
+            "setSensorArgvRes": self._noop_handler,
+            "getSensorArgvRes": self._process_get_sensor_argv_response,
+            "setDevParamRes": self._noop_handler,
+            "getDevParamRes": self._process_get_dev_param_response,
+            "identifyDevRes": self._process_identify_dev_response,
+        }
 
     def _get_device_key(self, dev_type: str, channel: int, address: int) -> str:
         return f"{dev_type}_{channel}_{address}"
@@ -239,7 +267,7 @@ class DaliGateway:
                 self._flush_batch(cmd)
                 return
             self._batch_timer[cmd] = self._loop.call_later(
-                self._window_ms / 1000.0, self._flush_batch, cmd
+                INBOUND_CALLBACK_BATCH_WINDOW_MS / 1000.0, self._flush_batch, cmd
             )
 
     def _flush_batch(self, cmd: str) -> None:
@@ -369,7 +397,13 @@ class DaliGateway:
         if dev_id not in self._device_listeners[event_type]:
             self._device_listeners[event_type][dev_id] = []
         self._device_listeners[event_type][dev_id].append(listener)
-        return lambda: self._device_listeners[event_type][dev_id].remove(listener)
+
+        def _unsubscribe() -> None:
+            listeners = self._device_listeners.get(event_type, {}).get(dev_id, [])
+            with contextlib.suppress(ValueError):
+                listeners.remove(listener)
+
+        return _unsubscribe
 
     def _notify_listeners(
         self,
@@ -550,32 +584,7 @@ class DaliGateway:
                 )
                 return
 
-            command_handlers: Dict[str, Callable[[Dict[str, Any]], None]] = {
-                "devStatus": self._process_device_status,
-                "readDevRes": self._process_device_status,
-                "writeDevRes": self._noop_handler,
-                "writeGroupRes": self._noop_handler,
-                "writeSceneRes": self._noop_handler,
-                "onlineStatus": self._process_online_status,
-                "reportEnergy": self._process_energy_report,
-                "searchDevRes": self._process_search_device_response,
-                "getSceneRes": self._process_get_scene_response,
-                "getGroupRes": self._process_get_group_response,
-                "getVersionRes": self._process_get_version_response,
-                "readGroupRes": self._process_read_group_response,
-                "readSceneRes": self._process_read_scene_response,
-                "restartGatewayRes": self._process_restart_gateway_response,
-                "getEnergyRes": self._process_get_energy_response,
-                "setSensorOnOffRes": self._noop_handler,
-                "getSensorOnOffRes": self._process_get_sensor_on_off_response,
-                "setSensorArgvRes": self._noop_handler,
-                "getSensorArgvRes": self._process_get_sensor_argv_response,
-                "setDevParamRes": self._noop_handler,
-                "getDevParamRes": self._process_get_dev_param_response,
-                "identifyDevRes": self._process_identify_dev_response,
-            }
-
-            handler = command_handlers.get(cmd)
+            handler = self._command_handlers.get(cmd)
             if handler:
                 handler(payload_json)
             else:
@@ -771,10 +780,13 @@ class DaliGateway:
         )
 
     @staticmethod
-    def _append_unique(device: Device, result: list[Device]) -> bool:
+    def _append_unique(
+        device: Device, result: list[Device], seen_ids: set[str]
+    ) -> bool:
         """Append device to result list if unique_id is not already present."""
-        if any(existing.unique_id == device.unique_id for existing in result):
+        if device.unique_id in seen_ids:
             return False
+        seen_ids.add(device.unique_id)
         result.append(device)
         return True
 
@@ -796,7 +808,9 @@ class DaliGateway:
                 count_before = len(self._bus_scan_result)
                 for raw in payload_json.get("data", []):
                     self._append_unique(
-                        self._parse_device_from_raw(raw), self._bus_scan_result
+                        self._parse_device_from_raw(raw),
+                        self._bus_scan_result,
+                        self._bus_scan_seen_ids,
                     )
                 _LOGGER.info(
                     "Gateway %s: Received %d devices (total: %d)",
@@ -822,7 +836,9 @@ class DaliGateway:
             # Legacy exited mode - original behavior
             for raw in payload_json.get("data", []):
                 self._append_unique(
-                    self._parse_device_from_raw(raw), self._devices_result
+                    self._parse_device_from_raw(raw),
+                    self._devices_result,
+                    self._devices_seen_ids,
                 )
 
             if search_status in {0, 1}:
@@ -1503,6 +1519,7 @@ class DaliGateway:
     async def discover_devices(self) -> list[Device]:
         self._devices_received = asyncio.Event()
         self._devices_result.clear()
+        self._devices_seen_ids.clear()
         search_payload = {
             "cmd": "searchDev",
             "searchFlag": "exited",
@@ -1545,6 +1562,7 @@ class DaliGateway:
         """
         self._bus_scan_complete = asyncio.Event()
         self._bus_scan_result.clear()
+        self._bus_scan_seen_ids.clear()
         self._bus_scan_cancelled = False
         self._bus_scanning = True
         self._bus_scan_channels = channels
@@ -1578,6 +1596,7 @@ class DaliGateway:
             )
             # Discard partial results on timeout
             self._bus_scan_result.clear()
+            self._bus_scan_seen_ids.clear()
             self._bus_scanning = False
             raise
 
@@ -1588,6 +1607,7 @@ class DaliGateway:
             _LOGGER.info("Gateway %s: Bus scan was cancelled", self._gw_sn)
             # Discard partial results on cancellation
             self._bus_scan_result.clear()
+            self._bus_scan_seen_ids.clear()
             raise BusScanCancelledError(
                 f"Bus scan cancelled for gateway {self._gw_sn}",
                 gw_sn=self._gw_sn,

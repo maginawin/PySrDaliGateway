@@ -57,7 +57,7 @@ class DaliGatewayDiscovery:
         message: bytes,
         gw_sn: str | None = None,
     ) -> List[DaliGateway]:
-        start_time = asyncio.get_event_loop().time()
+        start_time = asyncio.get_running_loop().time()
         first_gateway_found = asyncio.Event()
         unique_gateways: List[DaliGateway] = []
         seen_sns: Set[str] = set()
@@ -91,7 +91,7 @@ class DaliGatewayDiscovery:
         start_time: float,
     ) -> None:
         while not first_gateway_found.is_set():
-            if asyncio.get_event_loop().time() - start_time >= self.DISCOVERY_TIMEOUT:
+            if asyncio.get_running_loop().time() - start_time >= self.DISCOVERY_TIMEOUT:
                 _LOGGER.info(
                     "Discovery timeout reached after %.1f seconds",
                     self.DISCOVERY_TIMEOUT,
@@ -118,7 +118,7 @@ class DaliGatewayDiscovery:
         gw_sn: str | None = None,
     ) -> None:
         while not first_gateway_found.is_set():
-            if asyncio.get_event_loop().time() - start_time >= self.DISCOVERY_TIMEOUT:
+            if asyncio.get_running_loop().time() - start_time >= self.DISCOVERY_TIMEOUT:
                 break
 
             addr = None
