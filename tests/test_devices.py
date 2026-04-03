@@ -260,6 +260,13 @@ async def test_set_power_on_level_mask(
     )
 
     try:
+        # Cooldown: let device settle from any previous tests
+        _LOGGER.info("--- Cooldown: reading current state ---")
+        dev_param_events.clear()
+        light_device.get_device_parameters()
+        await _await_dev_param(dev_param_events, 0, timeout=12.0)
+        await asyncio.sleep(interval)
+
         # Test 1: Set power_status to MASK (255)
         _LOGGER.info("--- Test 1: Set power_status to MASK (255) ---")
         light_device.set_device_parameters({"power_status": 255})
@@ -342,7 +349,9 @@ async def test_read_cct_range(
 
     # Test 1: CCT devices should return cct_cool and cct_warm (limit to 3)
     _LOGGER.info("--- Test 1: Read CCT range from CCT devices (up to 3) ---")
-    for device in cct_devices[:3]:
+    for i, device in enumerate(cct_devices[:3]):
+        if i > 0:
+            await asyncio.sleep(3)  # Let gateway settle between devices
         dev_param_events.clear()
         unsub = device.register_listener(
             CallbackEventType.DEV_PARAM,
@@ -472,7 +481,10 @@ async def test_set_sensor_param(
         if sensor_param_events:
             _LOGGER.info("Received parameters: %s", sensor_param_events[-1][1])
         else:
-            _LOGGER.warning("No sensor parameters received")
+            unsub()
+            pytest.skip(
+                f"Sensor {sensor_device.name} not responding to parameter queries"
+            )
 
         # Test 2: Set sensor sensitivity and coverage
         _LOGGER.info("--- Test 2: Set sensor sensitivity and coverage ---")

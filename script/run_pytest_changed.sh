@@ -1,11 +1,12 @@
 #!/bin/bash
-# Pre-commit hook: run pytest only on changed files.
+# Pre-commit hook: run pytest for changed files.
 #
-# - test file changed        → run that test file
-# - source / infra changed   → run unit tests only (skip hardware tests)
+# Strategy:
+# - test file changed         → run that test file directly
+# - source file changed       → run the matching test file (by name convention)
+# - infra file changed        → run all tests
 #
-# Hardware tests (test_devices, test_groups, test_scenes, test_bus_scan,
-# test_connection) require a physical gateway and are skipped here.
+# When no gateway is connected, hardware tests auto-skip (pytest.skip in conftest).
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 PYTEST="${REPO_ROOT}/venv/bin/pytest"
@@ -13,39 +14,59 @@ if [ ! -x "$PYTEST" ]; then
     PYTEST="pytest"
 fi
 
-# Hardware test files that require a connected gateway.
-HARDWARE_TESTS="tests/test_devices.py tests/test_groups.py tests/test_scenes.py tests/test_bus_scan.py tests/test_connection.py"
+# Infra files: changes here affect everything → run all tests.
+# Source files with no single matching test also fall into this category.
+INFRA_PATTERNS="tests/conftest.py|tests/helpers.py|tests/cache.py|PySrDaliGateway/types.py|PySrDaliGateway/helper.py|PySrDaliGateway/const.py|PySrDaliGateway/__init__.py"
+
+# Source → test mapping (by naming convention).
+# PySrDaliGateway/foo.py → tests/test_foo.py (if it exists)
+# Special cases mapped explicitly.
+source_to_test() {
+    local src="$1"
+    local base
+    base="$(basename "$src" .py)"
+
+    case "$base" in
+        discovery) echo "tests/test_connection.py" ;;
+        *)         echo "tests/test_${base}.py" ;;
+    esac
+}
 
 test_files=()
 run_all=false
 
 for f in "$@"; do
+    # Infra file → run all
+    if echo "$f" | grep -qE "^($INFRA_PATTERNS)$"; then
+        run_all=true
+        continue
+    fi
+
     case "$f" in
         tests/test_*.py)
             test_files+=("$f") ;;
-        PySrDaliGateway/* | tests/conftest.py | tests/helpers.py | tests/cache.py)
-            run_all=true ;;
+        PySrDaliGateway/*.py)
+            mapped="$(source_to_test "$f")"
+            if [ -f "$REPO_ROOT/$mapped" ]; then
+                test_files+=("$mapped")
+            else
+                run_all=true
+            fi
+            ;;
     esac
 done
 
-ignore_args=()
-for hw in $HARDWARE_TESTS; do
-    ignore_args+=(--ignore="$hw")
-done
+# Deduplicate test files (compatible with macOS bash 3.2).
+if (( ${#test_files[@]} )); then
+    deduped=()
+    while IFS= read -r f; do
+        deduped+=("$f")
+    done <<< "$(printf '%s\n' "${test_files[@]}" | sort -u)"
+    test_files=("${deduped[@]}")
+fi
 
 if $run_all; then
-    exec "$PYTEST" tests/ "${ignore_args[@]}"
+    exec "$PYTEST" tests/
 elif (( ${#test_files[@]} )); then
-    # Filter out hardware test files from explicit list.
-    unit_files=()
-    for f in "${test_files[@]}"; do
-        is_hw=false
-        for hw in $HARDWARE_TESTS; do
-            if [ "$f" = "$hw" ]; then is_hw=true; break; fi
-        done
-        if ! $is_hw; then unit_files+=("$f"); fi
-    done
-    if (( ${#unit_files[@]} )); then
-        exec "$PYTEST" "${unit_files[@]}"
-    fi
+    exec "$PYTEST" "${test_files[@]}"
 fi

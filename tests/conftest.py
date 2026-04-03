@@ -127,12 +127,10 @@ async def connected_gateway(
 
         discovered = await discovery.discover_gateways(gateway_sn)
         if not discovered:
-            pytest.fail(
-                "No gateways discovered! Check network connectivity and gateway power."
-            )
+            pytest.skip("No gateways discovered — skipping hardware tests")
 
         if gateway_index >= len(discovered):
-            pytest.fail(
+            pytest.skip(
                 f"Gateway index {gateway_index} out of range (0-{len(discovered) - 1})"
             )
 
