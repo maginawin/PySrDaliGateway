@@ -230,6 +230,91 @@ async def test_set_dev_param(
 
 
 @pytest.mark.asyncio
+async def test_set_power_on_level_mask(
+    connected_gateway: TestDaliGateway,
+    discovered_devices: List[Device],
+) -> None:
+    """Set power_status to MASK (255) and a normal value, verify readback."""
+    interval = 10  # seconds
+
+    _LOGGER.info("=== Testing Power On Level MASK Value ===")
+
+    light_device = next(
+        (d for d in discovered_devices if is_light_device(d.dev_type)), None
+    )
+    assert light_device is not None, "No light device found for MASK testing"
+
+    _LOGGER.info(
+        "Testing device: %s (Channel %s, Address %s, Type %s)",
+        light_device.name,
+        light_device.channel,
+        light_device.address,
+        light_device.dev_type,
+    )
+
+    dev_param_events: List[Tuple[str, DeviceParamType]] = []
+
+    unsub = light_device.register_listener(
+        CallbackEventType.DEV_PARAM,
+        _make_dev_param_callback(dev_param_events, light_device.dev_id),
+    )
+
+    try:
+        # Test 1: Set power_status to MASK (255)
+        _LOGGER.info("--- Test 1: Set power_status to MASK (255) ---")
+        light_device.set_device_parameters({"power_status": 255})
+        await asyncio.sleep(interval)
+
+        dev_param_events.clear()
+        light_device.get_device_parameters()
+        got_params = await _await_dev_param(dev_param_events, 0, timeout=12.0)
+
+        assert got_params, "No parameters received after setting MASK"
+        params = dev_param_events[-1][1]
+        _LOGGER.info("Readback after MASK: %s", params)
+        assert params.get("power_status") == 255, (
+            f"Expected power_status=255 (MASK), got {params.get('power_status')}"
+        )
+
+        # Test 2: Set power_status to a normal value (128)
+        _LOGGER.info("--- Test 2: Set power_status to 128 ---")
+        light_device.set_device_parameters({"power_status": 128})
+        await asyncio.sleep(interval)
+
+        dev_param_events.clear()
+        light_device.get_device_parameters()
+        got_params = await _await_dev_param(dev_param_events, 0, timeout=12.0)
+
+        assert got_params, "No parameters received after setting 128"
+        params = dev_param_events[-1][1]
+        _LOGGER.info("Readback after 128: %s", params)
+        assert params.get("power_status") == 128, (
+            f"Expected power_status=128, got {params.get('power_status')}"
+        )
+
+        # Test 3: Set system_failure_status to MASK (255)
+        _LOGGER.info("--- Test 3: Set system_failure_status to MASK (255) ---")
+        light_device.set_device_parameters({"system_failure_status": 255})
+        await asyncio.sleep(interval)
+
+        dev_param_events.clear()
+        light_device.get_device_parameters()
+        got_params = await _await_dev_param(dev_param_events, 0, timeout=12.0)
+
+        assert got_params, "No parameters received after setting system_failure MASK"
+        params = dev_param_events[-1][1]
+        _LOGGER.info("Readback system_failure_status: %s", params)
+        assert params.get("system_failure_status") == 255, (
+            f"Expected system_failure_status=255 (MASK), got {params.get('system_failure_status')}"
+        )
+
+    finally:
+        unsub()
+
+    _LOGGER.info("Power On Level MASK test completed")
+
+
+@pytest.mark.asyncio
 async def test_read_cct_range(
     connected_gateway: TestDaliGateway,
     discovered_devices: List[Device],
