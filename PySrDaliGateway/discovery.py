@@ -1,6 +1,7 @@
 """Dali Gateway Discovery"""
 
 import asyncio
+import contextlib
 import json
 import logging
 import socket
@@ -78,10 +79,8 @@ class DaliGatewayDiscovery:
         )
         for task in pending:
             task.cancel()
-            try:  # noqa: SIM105 — contextlib.suppress triggers CodeQL false positive
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
         return unique_gateways
 
     async def _sender_loop(
