@@ -17,6 +17,7 @@ class CallbackEventType(Enum):
     SENSOR_ON_OFF = "sensor_on_off"
     DEV_PARAM = "dev_param"
     SENSOR_PARAM = "sensor_param"
+    VERSION_UPDATED = "version_updated"
 
 
 class PanelEventType(Enum):

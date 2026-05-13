@@ -136,6 +136,61 @@ async def test_gateway_status_sync(connected_gateway: TestDaliGateway) -> None:
     _LOGGER.info("Gateway status synchronization test completed successfully")
 
 
+async def test_version_listener(connected_gateway: TestDaliGateway) -> None:
+    """Verify VERSION_UPDATED listener fires with (sw, fw) tuple on connect."""
+    _LOGGER.info("=== Testing Version Update Listener ===")
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    gateway = TestDaliGateway(
+        gw_sn=connected_gateway.gw_sn,
+        gw_ip=connected_gateway.gw_ip,
+        port=connected_gateway.port,
+        username=connected_gateway.username,
+        passwd=connected_gateway.passwd,
+        name=connected_gateway.name,
+        channel_total=connected_gateway.channel_total,
+        is_tls=connected_gateway.is_tls,
+        loop=loop,
+    )
+
+    version_events: List[Tuple[str, str]] = []
+
+    def on_version_updated(versions: Tuple[str, str]) -> None:
+        """Capture version updates."""
+        version_events.append(versions)
+        _LOGGER.info("Version updated: sw=%s fw=%s", versions[0], versions[1])
+
+    gateway.register_listener(
+        CallbackEventType.VERSION_UPDATED,
+        on_version_updated,
+        dev_id=gateway.gw_sn,
+    )
+
+    await gateway.connect()
+    # Wait briefly for the asynchronous getVersionRes MQTT response.
+    await asyncio.sleep(2)
+
+    assert version_events, "VERSION_UPDATED listener was not fired after connect()"
+
+    sw, fw = version_events[-1]
+    assert sw or fw, f"Listener fired but both versions empty (sw={sw!r}, fw={fw!r})"
+    # Listener payload must match the gateway's stored attributes.
+    assert sw == gateway.software_version
+    assert fw == gateway.firmware_version
+
+    _LOGGER.info(
+        "VERSION_UPDATED listener fired with (sw=%s, fw=%s) — payload contract OK",
+        sw,
+        fw,
+    )
+
+    await gateway.disconnect()
+
+
 @pytest.mark.destructive
 async def test_restart_gateway(connected_gateway: TestDaliGateway) -> None:
     """Send a restart command to the gateway.

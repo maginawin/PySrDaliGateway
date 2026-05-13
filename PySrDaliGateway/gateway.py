@@ -188,6 +188,7 @@ class DaliGateway:
             CallbackEventType.SENSOR_ON_OFF: {},
             CallbackEventType.DEV_PARAM: {},
             CallbackEventType.SENSOR_PARAM: {},
+            CallbackEventType.VERSION_UPDATED: {},
         }
 
         self._pending_requests: Dict[str, Dict[str, Dict[str, Any]]] = {}
@@ -380,6 +381,7 @@ class DaliGateway:
             Callable[[EnergyData], None],
             Callable[[DeviceParamType], None],
             Callable[[SensorParamType], None],
+            Callable[[Tuple[str, str]], None],
         ],
         dev_id: str,
     ) -> Callable[[], None]:
@@ -419,6 +421,7 @@ class DaliGateway:
             EnergyData,
             DeviceParamType,
             SensorParamType,
+            Tuple[str, str],
         ],
     ) -> None:
         """Queue callbacks for batched dispatch to prevent event loop overload.
@@ -721,6 +724,11 @@ class DaliGateway:
     def _process_get_version_response(self, payload_json: Dict[str, Any]) -> None:
         self.software_version = payload_json.get("data", {}).get("swVersion", "")
         self.firmware_version = payload_json.get("data", {}).get("fwVersion", "")
+        self._notify_listeners(
+            CallbackEventType.VERSION_UPDATED,
+            self._gw_sn,
+            (self.software_version, self.firmware_version),
+        )
 
     def _process_get_energy_response(self, payload_json: Dict[str, Any]) -> None:
         data_list = payload_json.get("data")

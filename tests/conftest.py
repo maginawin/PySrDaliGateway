@@ -13,6 +13,7 @@ from PySrDaliGateway.discovery import DaliGatewayDiscovery
 from PySrDaliGateway.group import Group
 from PySrDaliGateway.helper import is_light_device
 from PySrDaliGateway.scene import Scene
+from PySrDaliGateway.types import CallbackEventType
 
 from .cache import GatewayCredentialCache
 from .helpers import TestDaliGateway
@@ -178,6 +179,29 @@ async def connected_gateway(
     )
 
     await gateway.connect()
+
+    # Wait for getVersionRes so tests can read software_version / firmware_version
+    # deterministically without racing the asynchronous MQTT response.
+    if not (gateway.software_version and gateway.firmware_version):
+        version_event = asyncio.Event()
+
+        def _on_version(_versions: Any) -> None:
+            version_event.set()
+
+        unsub = gateway.register_listener(
+            CallbackEventType.VERSION_UPDATED,
+            _on_version,
+            dev_id=gateway.gw_sn,
+        )
+        try:
+            await asyncio.wait_for(version_event.wait(), timeout=2.0)
+        except asyncio.TimeoutError:
+            _LOGGER.warning(
+                "Gateway did not report version within 2s — tests reading "
+                "software_version/firmware_version may see empty strings",
+            )
+        finally:
+            unsub()
 
     _LOGGER.info("Connected to gateway successfully")
 
