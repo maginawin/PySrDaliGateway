@@ -37,6 +37,15 @@ class SupportsDeviceCommands(Protocol):
     ) -> None:
         raise NotImplementedError
 
+    async def async_command_write_dev(
+        self,
+        dev_type: str,
+        channel: int,
+        address: int,
+        properties: List[Dict[str, Any]],
+    ) -> None:
+        raise NotImplementedError
+
     def command_read_dev(self, dev_type: str, channel: int, address: int) -> None:
         raise NotImplementedError
 
@@ -138,13 +147,13 @@ class Device(DaliObjectBase):
                 self.dev_type, self.channel, self.address, [prop]
             )
 
-    def turn_on(
+    def _build_turn_on_properties(
         self,
         brightness: int | None = None,
         color_temp_kelvin: int | None = None,
         hs_color: Tuple[float, float] | None = None,
         rgbw_color: Tuple[float, float, float, float] | None = None,
-    ) -> None:
+    ) -> List[Dict[str, Any]]:
         properties = [self._create_property(DPID_POWER, "bool", True)]
 
         if brightness is not None:
@@ -188,11 +197,54 @@ class Device(DaliObjectBase):
                     self._create_property(DPID_WHITE_LEVEL, "uint8", int(w))
                 )
 
-        self._send_properties(properties)
+        return properties
+
+    def turn_on(
+        self,
+        brightness: int | None = None,
+        color_temp_kelvin: int | None = None,
+        hs_color: Tuple[float, float] | None = None,
+        rgbw_color: Tuple[float, float, float, float] | None = None,
+    ) -> None:
+        self._send_properties(
+            self._build_turn_on_properties(
+                brightness=brightness,
+                color_temp_kelvin=color_temp_kelvin,
+                hs_color=hs_color,
+                rgbw_color=rgbw_color,
+            )
+        )
+
+    async def async_turn_on(
+        self,
+        brightness: int | None = None,
+        color_temp_kelvin: int | None = None,
+        hs_color: Tuple[float, float] | None = None,
+        rgbw_color: Tuple[float, float, float, float] | None = None,
+    ) -> None:
+        """Turn on the light and await the batched MQTT publish result."""
+        await self._client.async_command_write_dev(
+            self.dev_type,
+            self.channel,
+            self.address,
+            self._build_turn_on_properties(
+                brightness=brightness,
+                color_temp_kelvin=color_temp_kelvin,
+                hs_color=hs_color,
+                rgbw_color=rgbw_color,
+            ),
+        )
 
     def turn_off(self) -> None:
         properties = [self._create_property(DPID_POWER, "bool", False)]
         self._send_properties(properties)
+
+    async def async_turn_off(self) -> None:
+        """Turn off the light and await the batched MQTT publish result."""
+        properties = [self._create_property(DPID_POWER, "bool", False)]
+        await self._client.async_command_write_dev(
+            self.dev_type, self.channel, self.address, properties
+        )
 
     def read_status(self) -> None:
         self._client.command_read_dev(self.dev_type, self.channel, self.address)
