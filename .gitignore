@@ -58,7 +58,6 @@ Thumbs.db
 # Project specific
 old/
 CLAUDE.md
-AGENTS.md
 
 .kilocode
 doc/
