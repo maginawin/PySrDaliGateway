@@ -1,7 +1,7 @@
 """Dali Gateway Device"""
 
 import colorsys
-from typing import Any, Callable, Dict, Iterable, List, Protocol, Tuple
+from typing import Callable, Iterable, List, Protocol, Sequence, Tuple
 
 from .base import DaliObjectBase
 from .const import (
@@ -14,6 +14,7 @@ from .const import (
 )
 from .types import (
     CallbackEventType,
+    CommandProperty,
     DeviceParamType,
     DeviceProperty,
     ListenerCallback,
@@ -25,26 +26,23 @@ class SupportsDeviceCommands(Protocol):
     """Protocol exposing the gateway commands needed by Device instances."""
 
     @property
-    def gw_sn(self) -> str:
-        raise NotImplementedError
+    def gw_sn(self) -> str: ...
 
     def command_write_dev(
         self,
         dev_type: str,
         channel: int,
         address: int,
-        properties: List[Dict[str, Any]],
-    ) -> None:
-        raise NotImplementedError
+        properties: Sequence[CommandProperty],
+    ) -> None: ...
 
     async def async_command_write_dev(
         self,
         dev_type: str,
         channel: int,
         address: int,
-        properties: List[Dict[str, Any]],
-    ) -> None:
-        raise NotImplementedError
+        properties: Sequence[CommandProperty],
+    ) -> None: ...
 
     def command_read_dev(self, dev_type: str, channel: int, address: int) -> None:
         raise NotImplementedError
@@ -141,7 +139,7 @@ class Device(DaliObjectBase):
         """Computed color mode based on device type."""
         return COLOR_MODE_MAP.get(self.dev_type, "brightness")
 
-    def _send_properties(self, properties: List[Dict[str, Any]]) -> None:
+    def _send_properties(self, properties: Sequence[CommandProperty]) -> None:
         for prop in properties:
             self._client.command_write_dev(
                 self.dev_type, self.channel, self.address, [prop]
@@ -153,7 +151,7 @@ class Device(DaliObjectBase):
         color_temp_kelvin: int | None = None,
         hs_color: Tuple[float, float] | None = None,
         rgbw_color: Tuple[float, float, float, float] | None = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[CommandProperty]:
         properties = [self._create_property(DPID_POWER, "bool", True)]
 
         if brightness is not None:
@@ -206,6 +204,13 @@ class Device(DaliObjectBase):
         hs_color: Tuple[float, float] | None = None,
         rgbw_color: Tuple[float, float, float, float] | None = None,
     ) -> None:
+        """Queue a turn-on command synchronously (for legacy/non-async callers).
+
+        Raises ``DaliGatewayError`` immediately if the gateway is disconnected.
+        In ``asyncio`` integrations (such as Home Assistant), prefer
+        ``async_turn_on()`` so failures during the 100 ms batch flush are also
+        propagated to the caller.
+        """
         self._send_properties(
             self._build_turn_on_properties(
                 brightness=brightness,
@@ -222,7 +227,12 @@ class Device(DaliObjectBase):
         hs_color: Tuple[float, float] | None = None,
         rgbw_color: Tuple[float, float, float, float] | None = None,
     ) -> None:
-        """Turn on the light and await the batched MQTT publish result."""
+        """Turn on the light and await the batched MQTT publish result.
+
+        Preferred in ``asyncio`` callers: preserves the 100 ms ``writeDev``
+        batching window while raising ``DaliGatewayError`` if the gateway is
+        disconnected or MQTT publishing fails.
+        """
         await self._client.async_command_write_dev(
             self.dev_type,
             self.channel,
@@ -236,11 +246,21 @@ class Device(DaliObjectBase):
         )
 
     def turn_off(self) -> None:
+        """Queue a turn-off command synchronously (for legacy/non-async callers).
+
+        Raises ``DaliGatewayError`` immediately if the gateway is disconnected.
+        In ``asyncio`` integrations, prefer ``async_turn_off()``.
+        """
         properties = [self._create_property(DPID_POWER, "bool", False)]
         self._send_properties(properties)
 
     async def async_turn_off(self) -> None:
-        """Turn off the light and await the batched MQTT publish result."""
+        """Turn off the light and await the batched MQTT publish result.
+
+        Preferred in ``asyncio`` callers: preserves the 100 ms ``writeDev``
+        batching window while raising ``DaliGatewayError`` on disconnect or
+        MQTT publish failure.
+        """
         properties = [self._create_property(DPID_POWER, "bool", False)]
         await self._client.async_command_write_dev(
             self.dev_type, self.channel, self.address, properties

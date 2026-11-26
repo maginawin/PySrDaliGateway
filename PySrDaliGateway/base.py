@@ -1,9 +1,14 @@
 """Base class for DALI Gateway objects."""
 
 from abc import ABC
-from typing import Any, Callable, Dict
+from typing import Callable
 
-from .types import CallbackEventType, ListenerCallback
+from .types import (
+    CallbackEventType,
+    CommandProperty,
+    CommandPropertyValue,
+    ListenerCallback,
+)
 
 
 class DaliObjectBase(ABC):
@@ -21,7 +26,9 @@ class DaliObjectBase(ABC):
     gw_sn: str
 
     @staticmethod
-    def _create_property(dpid: int, data_type: str, value: Any) -> Dict[str, Any]:
+    def _create_property(
+        dpid: int, data_type: str, value: CommandPropertyValue
+    ) -> CommandProperty:
         """Create a property dict for DALI protocol commands."""
         return {"dpid": dpid, "dataType": data_type, "value": value}
 

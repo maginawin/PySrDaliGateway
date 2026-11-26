@@ -2,7 +2,7 @@
 
 import colorsys
 import logging
-from typing import Any, Callable, Dict, List, Protocol, Tuple
+from typing import Callable, List, Protocol, Sequence, Tuple
 
 from .base import DaliObjectBase
 from .const import (
@@ -13,7 +13,7 @@ from .const import (
     DPID_WHITE_LEVEL,
 )
 from .helper import gen_group_unique_id
-from .types import CallbackEventType, GroupDeviceType, ListenerCallback
+from .types import CallbackEventType, CommandProperty, GroupDeviceType, ListenerCallback
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,13 +22,11 @@ class SupportsGroupCommands(Protocol):
     """Protocol exposing the minimum gateway interface required by Group."""
 
     @property
-    def gw_sn(self) -> str:
-        raise NotImplementedError
+    def gw_sn(self) -> str: ...
 
     def command_write_group(
-        self, group_id: int, channel: int, properties: List[Dict[str, Any]]
-    ) -> None:
-        raise NotImplementedError
+        self, group_id: int, channel: int, properties: Sequence[CommandProperty]
+    ) -> None: ...
 
     def register_listener(
         self,
@@ -67,7 +65,7 @@ class Group(DaliObjectBase):
     def __repr__(self) -> str:
         return f"Group(name={self.name}, unique_id={self.unique_id})"
 
-    def _send_properties(self, properties: List[Dict[str, Any]]) -> None:
+    def _send_properties(self, properties: Sequence[CommandProperty]) -> None:
         _LOGGER.debug(
             "Group %s (id=%d, ch=%d): Sending %d properties: %s",
             self.name,
@@ -85,7 +83,7 @@ class Group(DaliObjectBase):
         color_temp_kelvin: int | None = None,
         rgbw_color: Tuple[float, float, float, float] | None = None,
     ) -> None:
-        properties: List[Dict[str, Any]] = [
+        properties: List[CommandProperty] = [
             self._create_property(DPID_POWER, "bool", True)
         ]
 
@@ -122,7 +120,7 @@ class Group(DaliObjectBase):
         self._send_properties(properties)
 
     def turn_off(self) -> None:
-        properties: List[Dict[str, Any]] = [
+        properties: List[CommandProperty] = [
             self._create_property(DPID_POWER, "bool", False)
         ]
         self._send_properties(properties)

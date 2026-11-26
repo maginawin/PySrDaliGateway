@@ -12,7 +12,8 @@ from PySrDaliGateway import DaliGateway, Device, Group, Scene
 from PySrDaliGateway.exceptions import DaliGatewayError
 from PySrDaliGateway.gateway import ConnectionState
 
-GATEWAY_SERIAL = "6A242121110E"
+# Synthetic serial number used only to construct unit-test MQTT topics and IDs.
+GATEWAY_SERIAL = "TEST_GATEWAY_001"
 
 
 def _create_gateway(

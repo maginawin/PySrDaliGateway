@@ -45,6 +45,17 @@ class DeviceProperty:
     data_type: str
 
 
+CommandPropertyValue = Union[bool, int, float, str]
+
+
+class CommandProperty(TypedDict):
+    """Serialized property entry inside a writeDev/writeGroup command."""
+
+    dpid: int
+    dataType: str
+    value: CommandPropertyValue
+
+
 class SceneDeviceProperty(TypedDict):
     dpid: int
     data_type: str

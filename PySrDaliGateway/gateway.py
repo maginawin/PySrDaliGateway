@@ -54,6 +54,7 @@ from .helper import (
 from .scene import Scene
 from .types import (
     CallbackEventType,
+    CommandProperty,
     DeviceParamCommand,
     DeviceParamType,
     EnergyData,
@@ -1974,7 +1975,7 @@ class DaliGateway:
         dev_type: str,
         channel: int,
         address: int,
-        properties: List[Dict[str, Any]],
+        properties: Sequence[CommandProperty],
     ) -> None:
         if not self.is_connected:
             raise DaliGatewayError(
@@ -2000,7 +2001,7 @@ class DaliGateway:
         dev_type: str,
         channel: int,
         address: int,
-        properties: List[Dict[str, Any]],
+        properties: Sequence[CommandProperty],
     ) -> None:
         """Queue a batched writeDev command and await its MQTT publish result."""
         if not self.is_connected:
@@ -2054,7 +2055,7 @@ class DaliGateway:
         )
 
     def command_write_group(
-        self, group_id: int, channel: int, properties: List[Dict[str, Any]]
+        self, group_id: int, channel: int, properties: Sequence[CommandProperty]
     ) -> None:
         command: Dict[str, Any] = {
             "cmd": "writeGroup",
@@ -2062,7 +2063,7 @@ class DaliGateway:
             "gwSn": self._gw_sn,
             "channel": channel,
             "groupId": group_id,
-            "data": properties,
+            "data": list(properties),
         }
         command_json = json.dumps(command)
         _LOGGER.debug(
