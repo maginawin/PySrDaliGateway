@@ -54,6 +54,7 @@ from .helper import (
 from .scene import Scene
 from .types import (
     CallbackEventType,
+    CommandProperty,
     DeviceParamCommand,
     DeviceParamType,
     EnergyData,
@@ -193,6 +194,7 @@ class DaliGateway:
 
         self._pending_requests: Dict[str, Dict[str, Dict[str, Any]]] = {}
         self._batch_timer: Dict[str, asyncio.TimerHandle] = {}  # cmd -> timer
+        self._batch_futures: Dict[str, List[asyncio.Future[None]]] = {}
 
         # Inbound callback batching with smart merging
         # Key: (event_type, dev_id, listener_id) -> (listener, merged_data)
@@ -240,8 +242,58 @@ class DaliGateway:
             if python_key in DEVICE_PARAM_KEY_MAP
         }
 
-    def add_request(
-        self, cmd: str, dev_type: str, channel: int, address: int, data: Dict[str, Any]
+    def _publish_payload(self, payload: str, cmd: str) -> None:
+        """Publish a serialized MQTT command, raising on disconnect or failure."""
+        if not self.is_connected:
+            raise DaliGatewayError(
+                f"Gateway {self._gw_sn} is not connected (cannot send '{cmd}')",
+                self._gw_sn,
+            )
+        info = self._mqtt_client.publish(self._pub_topic, payload)
+        if info.rc != paho_mqtt.MQTT_ERR_SUCCESS:
+            raise DaliGatewayError(
+                f"Failed to publish '{cmd}' to gateway {self._gw_sn} (rc={info.rc})",
+                self._gw_sn,
+            )
+
+    def _fail_pending_batches(self, reason: str) -> None:
+        """Cancel pending batch timers and fail awaiting batch futures."""
+        pending_cmds = list(
+            set(self._pending_requests)
+            | set(self._batch_timer)
+            | set(self._batch_futures)
+        )
+        for cmd in pending_cmds:
+            self._pending_requests.pop(cmd, None)
+            timer = self._batch_timer.pop(cmd, None)
+            if timer is not None:
+                timer.cancel()
+            futures = self._batch_futures.pop(cmd, [])
+            if futures:
+                err = DaliGatewayError(
+                    f"Gateway {self._gw_sn} disconnected before sending '{cmd}' ({reason})",
+                    self._gw_sn,
+                )
+                for fut in futures:
+                    if not fut.done():
+                        fut.set_exception(err)
+
+    def _fail_pending_batches_if_disconnected(self, reason: str) -> None:
+        """Fail pending batches on the event loop if the gateway is still disconnected."""
+        if not self.is_connected:
+            self._fail_pending_batches(reason)
+
+    def _enqueue_request(
+        self,
+        cmd: str,
+        dev_type: str,
+        channel: int,
+        address: int,
+        data: Dict[str, Any],
+        *,
+        future: asyncio.Future[None] | None = None,
+        loop: asyncio.AbstractEventLoop | None = None,
+        raise_on_sync_flush: bool = False,
     ) -> None:
         if cmd not in self._pending_requests:
             self._pending_requests[cmd] = {}
@@ -262,20 +314,38 @@ class DaliGateway:
 
         self._pending_requests[cmd][device_key] = data
 
+        if future is not None:
+            self._batch_futures.setdefault(cmd, []).append(future)
+
         if self._batch_timer.get(cmd) is None:
-            if self._loop is None or not self._loop.is_running():
+            active_loop = loop or self._loop
+            if active_loop is None or not active_loop.is_running():
                 # Fallback: flush immediately if no event loop available
-                self._flush_batch(cmd)
+                self._flush_batch(cmd, raise_without_waiters=raise_on_sync_flush)
                 return
-            self._batch_timer[cmd] = self._loop.call_later(
+            self._batch_timer[cmd] = active_loop.call_later(
                 INBOUND_CALLBACK_BATCH_WINDOW_MS / 1000.0, self._flush_batch, cmd
             )
 
-    def _flush_batch(self, cmd: str) -> None:
-        if not self._pending_requests.get(cmd):
+    def add_request(
+        self, cmd: str, dev_type: str, channel: int, address: int, data: Dict[str, Any]
+    ) -> None:
+        self._enqueue_request(cmd, dev_type, channel, address, data)
+
+    def _flush_batch(self, cmd: str, *, raise_without_waiters: bool = False) -> None:
+        pending = self._pending_requests.pop(cmd, None)
+        timer = self._batch_timer.pop(cmd, None)
+        if timer is not None:
+            timer.cancel()
+        futures = self._batch_futures.pop(cmd, [])
+
+        if not pending:
+            for fut in futures:
+                if not fut.done():
+                    fut.set_result(None)
             return
 
-        batch_data: List[Dict[str, Any]] = list(self._pending_requests[cmd].values())
+        batch_data: List[Dict[str, Any]] = list(pending.values())
 
         command: Dict[str, Any] = {
             "cmd": cmd,
@@ -283,15 +353,40 @@ class DaliGateway:
             "gwSn": self._gw_sn,
             "data": batch_data,
         }
+        command_json = json.dumps(command)
 
-        self._mqtt_client.publish(self._pub_topic, json.dumps(command))
+        if futures or raise_without_waiters:
+            try:
+                self._publish_payload(command_json, cmd)
+            except DaliGatewayError as err:
+                if futures:
+                    for fut in futures:
+                        if not fut.done():
+                            fut.set_exception(err)
+                    return
+                raise
+        else:
+            if not self.is_connected:
+                _LOGGER.warning(
+                    "Gateway %s: Dropping batched %s because gateway is not connected",
+                    self._gw_sn,
+                    cmd,
+                )
+                return
+            info = self._mqtt_client.publish(self._pub_topic, command_json)
+            if info.rc != paho_mqtt.MQTT_ERR_SUCCESS:
+                _LOGGER.warning(
+                    "Gateway %s: Failed to publish batched %s (rc=%s)",
+                    self._gw_sn,
+                    cmd,
+                    info.rc,
+                )
+                return
 
-        _LOGGER.debug(
-            "Gateway %s: Sent batch %s %s", self._gw_sn, cmd, json.dumps(command)
-        )
-
-        self._pending_requests[cmd].clear()
-        self._batch_timer.pop(cmd, None)
+        _LOGGER.debug("Gateway %s: Sent batch %s %s", self._gw_sn, cmd, command_json)
+        for fut in futures:
+            if not fut.done():
+                fut.set_result(None)
 
     def __repr__(self) -> str:
         return (
@@ -312,7 +407,7 @@ class DaliGateway:
             "gwSn": self._gw_sn,
             **kwargs,
         }
-        self._mqtt_client.publish(self._pub_topic, json.dumps(payload))
+        self._publish_payload(json.dumps(payload), cmd)
 
     @property
     def gw_sn(self) -> str:
@@ -558,6 +653,12 @@ class DaliGateway:
                 self._connection_state = ConnectionState.DISCONNECTED
         else:
             self._connection_state = ConnectionState.DISCONNECTED
+
+        if self._loop is not None and self._loop.is_running():
+            self._loop.call_soon_threadsafe(
+                self._fail_pending_batches_if_disconnected,
+                f"reason code {reason_code}",
+            )
 
         # Notify gateway-level listeners (thread-safe via _notify_listeners)
         self._notify_listeners(CallbackEventType.ONLINE_STATUS, self._gw_sn, False)
@@ -1355,6 +1456,7 @@ class DaliGateway:
             self._mqtt_client.disconnect()
             self._connection_event.clear()
             self._connection_state = ConnectionState.DISCONNECTED
+            self._fail_pending_batches("disconnect requested")
             _LOGGER.info("Successfully disconnected from gateway %s", self._gw_sn)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             _LOGGER.error(
@@ -1873,9 +1975,14 @@ class DaliGateway:
         dev_type: str,
         channel: int,
         address: int,
-        properties: List[Dict[str, Any]],
+        properties: Sequence[CommandProperty],
     ) -> None:
-        self.add_request(
+        if not self.is_connected:
+            raise DaliGatewayError(
+                f"Gateway {self._gw_sn} is not connected (cannot send 'writeDev')",
+                self._gw_sn,
+            )
+        self._enqueue_request(
             "writeDev",
             dev_type,
             channel,
@@ -1884,9 +1991,43 @@ class DaliGateway:
                 "devType": dev_type,
                 "channel": channel,
                 "address": address,
-                "property": properties,
+                "property": list(properties),
             },
+            raise_on_sync_flush=True,
         )
+
+    async def async_command_write_dev(
+        self,
+        dev_type: str,
+        channel: int,
+        address: int,
+        properties: Sequence[CommandProperty],
+    ) -> None:
+        """Queue a batched writeDev command and await its MQTT publish result."""
+        if not self.is_connected:
+            raise DaliGatewayError(
+                f"Gateway {self._gw_sn} is not connected (cannot send 'writeDev')",
+                self._gw_sn,
+            )
+        loop = asyncio.get_running_loop()
+        if self._loop is None or not self._loop.is_running():
+            self._loop = loop
+        future: asyncio.Future[None] = loop.create_future()
+        self._enqueue_request(
+            "writeDev",
+            dev_type,
+            channel,
+            address,
+            {
+                "devType": dev_type,
+                "channel": channel,
+                "address": address,
+                "property": list(properties),
+            },
+            future=future,
+            loop=loop,
+        )
+        await future
 
     def command_read_dev(self, dev_type: str, channel: int, address: int) -> None:
         self.add_request(
@@ -1914,7 +2055,7 @@ class DaliGateway:
         )
 
     def command_write_group(
-        self, group_id: int, channel: int, properties: List[Dict[str, Any]]
+        self, group_id: int, channel: int, properties: Sequence[CommandProperty]
     ) -> None:
         command: Dict[str, Any] = {
             "cmd": "writeGroup",
@@ -1922,7 +2063,7 @@ class DaliGateway:
             "gwSn": self._gw_sn,
             "channel": channel,
             "groupId": group_id,
-            "data": properties,
+            "data": list(properties),
         }
         command_json = json.dumps(command)
         _LOGGER.debug(
@@ -1930,7 +2071,7 @@ class DaliGateway:
             self._gw_sn,
             command_json,
         )
-        self._mqtt_client.publish(self._pub_topic, command_json)
+        self._publish_payload(command_json, "writeGroup")
 
     def command_write_scene(self, scene_id: int, channel: int) -> None:
         self._publish_command("writeScene", channel=channel, sceneId=scene_id)
@@ -1995,7 +2136,7 @@ class DaliGateway:
         _LOGGER.debug(
             "Gateway %s: Sending setSensorArgv command: %s", self._gw_sn, command
         )
-        self._mqtt_client.publish(self._pub_topic, command_json)
+        self._publish_payload(command_json, "setSensorArgv")
 
     def command_get_sensor_argv(
         self, dev_type: str, channel: int, address: int
@@ -2064,7 +2205,7 @@ class DaliGateway:
         _LOGGER.debug(
             "Gateway %s: Sending setDevParam command: %s", self._gw_sn, command
         )
-        self._mqtt_client.publish(self._pub_topic, command_json)
+        self._publish_payload(command_json, "setDevParam")
 
     def command_set_dev_params(self, items: Sequence[DeviceParamCommand]) -> None:
         """Set parameters for multiple targets in one MQTT message."""
@@ -2108,7 +2249,7 @@ class DaliGateway:
             self._gw_sn,
             command,
         )
-        self._mqtt_client.publish(self._pub_topic, command_json)
+        self._publish_payload(command_json, "setDevParam")
 
     def restart_gateway(self) -> None:
         """Restart the gateway."""

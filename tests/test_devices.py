@@ -10,10 +10,17 @@ from typing import List, Tuple
 import pytest
 
 from PySrDaliGateway.device import Device
+from PySrDaliGateway.exceptions import DaliGatewayError
 from PySrDaliGateway.helper import is_cct_device, is_light_device, is_sensor_device
-from PySrDaliGateway.types import CallbackEventType, DeviceParamType, SensorParamType
+from PySrDaliGateway.scene import Scene
+from PySrDaliGateway.types import (
+    CallbackEventType,
+    DeviceParamType,
+    LightStatus,
+    SensorParamType,
+)
 
-from .helpers import TestDaliGateway
+from .helpers import TestDaliGateway, make_light_callback
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -590,3 +597,126 @@ async def test_identify_device(
     assert success_count > 0, (
         f"No devices responded to identify command ({len(devices_to_test)} tested)"
     )
+
+
+@pytest.mark.asyncio
+async def test_async_light_control(discovered_devices: List[Device]) -> None:
+    """Verify batched async_turn_on and async_turn_off on real light devices."""
+    light_devices = [d for d in discovered_devices if is_light_device(d.dev_type)][:2]
+    if not light_devices:
+        pytest.skip("No light devices available")
+
+    events: List[Tuple[str, LightStatus]] = []
+    unsubs = [
+        light.register_listener(
+            CallbackEventType.LIGHT_STATUS,
+            make_light_callback(light.dev_id, events),
+        )
+        for light in light_devices
+    ]
+
+    async def _wait_for_power_state(
+        expected_on: bool, baseline: int, timeout: float = 5.0
+    ) -> bool:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            if any(
+                status.get("is_on") is expected_on for _, status in events[baseline:]
+            ):
+                return True
+            await asyncio.sleep(0.2)
+        return False
+
+    try:
+        on_baseline = len(events)
+        await asyncio.gather(
+            *(light.async_turn_on(brightness=128) for light in light_devices)
+        )
+        assert await _wait_for_power_state(True, on_baseline), (
+            "No light reported is_on=True after async_turn_on"
+        )
+
+        off_baseline = len(events)
+        await asyncio.gather(*(light.async_turn_off() for light in light_devices))
+        assert await _wait_for_power_state(False, off_baseline), (
+            "No light reported is_on=False after async_turn_off"
+        )
+    finally:
+        for unsub in unsubs:
+            unsub()
+
+
+@pytest.mark.asyncio
+async def test_commands_raise_when_gateway_disconnected(
+    connected_gateway: TestDaliGateway,
+    discovered_devices: List[Device],
+) -> None:
+    """Verify control commands raise DaliGatewayError on a real disconnected gateway."""
+    light_devices = [d for d in discovered_devices if is_light_device(d.dev_type)]
+    if not light_devices:
+        pytest.skip("No light devices available")
+
+    sample = light_devices[0]
+    clone = TestDaliGateway(
+        gw_sn=connected_gateway.gw_sn,
+        gw_ip=connected_gateway.gw_ip,
+        port=connected_gateway.port,
+        username=connected_gateway.username,
+        passwd=connected_gateway.passwd,
+        name=connected_gateway.name,
+        channel_total=connected_gateway.channel_total,
+        is_tls=connected_gateway.is_tls,
+        loop=asyncio.get_running_loop(),
+    )
+    cloned_light = Device(
+        command_client=clone,
+        unique_id=sample.unique_id,
+        dev_id=sample.dev_id,
+        name=sample.name,
+        dev_type=sample.dev_type,
+        channel=sample.channel,
+        address=sample.address,
+        status=sample.status,
+        dev_sn=sample.dev_sn,
+        area_name=sample.area_name,
+        area_id=sample.area_id,
+        model=sample.model,
+    )
+    cloned_scene = Scene(
+        command_client=clone,
+        scene_id=0,
+        name="Disconnect Test Scene",
+        channel=sample.channel,
+        area_id=sample.area_id,
+        devices=[],
+    )
+
+    await clone.connect()
+    try:
+        # Disconnect while an async_turn_on batch is in flight
+        pending_task = asyncio.create_task(cloned_light.async_turn_on(brightness=128))
+        await asyncio.sleep(0)
+        await clone.disconnect()
+        assert not clone.is_connected
+
+        with pytest.raises(DaliGatewayError):
+            await pending_task
+
+        # Subsequent commands while disconnected raise immediately
+        with pytest.raises(DaliGatewayError):
+            await cloned_light.async_turn_on(brightness=128)
+        with pytest.raises(DaliGatewayError):
+            await cloned_light.async_turn_off()
+        with pytest.raises(DaliGatewayError):
+            cloned_light.turn_on()
+        with pytest.raises(DaliGatewayError):
+            cloned_light.identify()
+        with pytest.raises(DaliGatewayError):
+            cloned_scene.activate()
+
+        # Background read_status remains non-raising
+        cloned_light.read_status()
+    finally:
+        if clone.is_connected:
+            await clone.disconnect()
